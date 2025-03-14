@@ -1,10 +1,9 @@
 import { useState } from "react";
-import * as XLSX from "xlsx";
+import * as XLSX from "xlsx"; // <- NPM-es verzió, EZ A LÉNYEG
 
 function App() {
   const [raktarFile, setRaktarFile] = useState(null);
   const [webshopFile, setWebshopFile] = useState(null);
-  const [resultUrl, setResultUrl] = useState(null);
 
   function handleFileUpload(e, setter) {
     const file = e.target.files[0];
@@ -28,7 +27,10 @@ function App() {
   }
 
   async function handleCompare() {
-    if (!raktarFile || !webshopFile) return;
+    if (!raktarFile || !webshopFile) {
+      alert("Töltsd fel mindkét Excel fájlt!");
+      return;
+    }
 
     const raktarData = await readExcel(raktarFile);
     const webshopData = await readExcel(webshopFile);
@@ -36,7 +38,7 @@ function App() {
     const raktarMap = {};
     for (const row of raktarData) {
       const cikkszam = row["Cikk-kód"];
-      const keszlet = Number(row["Készleten"] ?? 0);
+      const keszlet = Number(row["Szabad"] ?? 0); // ← EZT FIGYELJÜK!
       const nev = row["Megnevezés"];
       if (!raktarMap[cikkszam]) {
         raktarMap[cikkszam] = { nev, keszlet: 0 };
@@ -63,9 +65,7 @@ function App() {
     const ws = XLSX.utils.json_to_sheet(elteresek);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Eltérések");
-    const blob = XLSX.write(wb, { bookType: "xlsx", type: "blob" });
-    const url = URL.createObjectURL(blob);
-    setResultUrl(url);
+    XLSX.writeFile(wb, "elteresek.xlsx");
   }
 
   return (
@@ -98,18 +98,6 @@ function App() {
       >
         Ellenőrzés indítása
       </button>
-
-      {resultUrl && (
-        <div style={{ marginTop: "1rem" }}>
-          <a
-            href={resultUrl}
-            download="elteresek.xlsx"
-            style={{ color: "#2563eb", textDecoration: "underline" }}
-          >
-            Eltérések letöltése
-          </a>
-        </div>
-      )}
     </main>
   );
 }
