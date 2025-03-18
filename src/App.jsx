@@ -38,7 +38,7 @@ function App() {
     const raktarMap = {};
     for (const row of raktarData) {
       const cikkszam = row["Cikk-kód"];
-      const keszlet = Number(row["Készleten"] ?? 0); // ← EZT FIGYELJÜK!
+      const keszlet = Number(row["Szabad"] ?? 0); // ← EZT FIGYELJÜK!
       const nev = row["Megnevezés"];
       if (!raktarMap[cikkszam]) {
         raktarMap[cikkszam] = { nev, keszlet: 0 };
