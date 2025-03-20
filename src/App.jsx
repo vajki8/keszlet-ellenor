@@ -1,5 +1,5 @@
 import { useState } from "react";
-import * as XLSX from "xlsx"; // <- NPM-es verzió, EZ A LÉNYEG
+import * as XLSX from "xlsx";
 
 function App() {
   const [raktarFile, setRaktarFile] = useState(null);
@@ -36,21 +36,30 @@ function App() {
     const webshopData = await readExcel(webshopFile);
 
     const raktarMap = {};
+    const raktarCikkszamok = new Set();
+
     for (const row of raktarData) {
       const cikkszam = row["Cikk-kód"];
-      const keszlet = Number(row["Szabad"] ?? 0); // ← EZT FIGYELJÜK!
+      const keszlet = Number(row["Szabad"] ?? 0);
       const nev = row["Megnevezés"];
       if (!raktarMap[cikkszam]) {
         raktarMap[cikkszam] = { nev, keszlet: 0 };
       }
       raktarMap[cikkszam].keszlet += keszlet;
+      raktarCikkszamok.add(cikkszam);
     }
 
     const elteresek = [];
+    const csakWebshopban = [];
+    const webshopCikkszamok = new Set();
+
     for (const row of webshopData) {
       const cikkszam = row["Cikkszám"]?.toUpperCase();
       const webshopKeszlet = Number(row["Raktárkészlet"] ?? 0);
       const nev = row["Termék Név"];
+      const kategoria = row["Kategória"];
+      webshopCikkszamok.add(cikkszam);
+
       const raktar = raktarMap[cikkszam];
       if (raktar && webshopKeszlet > raktar.keszlet) {
         elteresek.push({
@@ -60,12 +69,38 @@ function App() {
           "Raktárkészlet": raktar.keszlet,
         });
       }
+
+      if (!raktar) {
+        csakWebshopban.push({
+          "Cikkszám": cikkszam,
+          "Termék név": nev,
+          "Kategória": kategoria,
+        });
+      }
     }
 
-    const ws = XLSX.utils.json_to_sheet(elteresek);
+    const csakRaktarban = [];
+    for (const cikkszam of raktarCikkszamok) {
+      if (!webshopCikkszamok.has(cikkszam)) {
+        const termek = raktarMap[cikkszam];
+        csakRaktarban.push({
+          "Cikk-kód": cikkszam,
+          "Megnevezés": termek.nev,
+          "Szabad készlet": termek.keszlet,
+        });
+      }
+    }
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Eltérések");
-    XLSX.writeFile(wb, "elteresek.xlsx");
+    const elteresSheet = XLSX.utils.json_to_sheet(elteresek);
+    const webshopOnlySheet = XLSX.utils.json_to_sheet(csakWebshopban);
+    const raktarOnlySheet = XLSX.utils.json_to_sheet(csakRaktarban);
+
+    XLSX.utils.book_append_sheet(wb, elteresSheet, "Eltérések");
+    XLSX.utils.book_append_sheet(wb, webshopOnlySheet, "Csak_webshopban");
+    XLSX.utils.book_append_sheet(wb, raktarOnlySheet, "Csak_raktarban");
+
+    XLSX.writeFile(wb, "keszlet_ellenorzes.xlsx");
   }
 
   return (
