@@ -15,7 +15,7 @@ function App() {
     if (!file.name.endsWith(".xlsx")) return;
     const lowered = file.name.toLowerCase();
     if (lowered.includes("raktar")) setRaktarFile(file);
-    else if (lowered.includes("webshop")) setWebshopFile(file);
+    else if (lowered.includes("webshop") || lowered.includes("unasshop")) setWebshopFile(file);
   };
 
   const handleDrop = useCallback((e) => {
