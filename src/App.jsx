@@ -10,6 +10,7 @@ function App() {
   const [summary, setSummary] = useState(null);
   const [filterText, setFilterText] = useState("");
   const [filterField, setFilterField] = useState("Cikkszám");
+  const [showMatches, setShowMatches] = useState(false);
 
   const handleFileUpload = (file) => {
     if (!file.name.endsWith(".xlsx")) return;
@@ -45,7 +46,6 @@ function App() {
     if (raktarFile && webshopFile) {
       handleCompare();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raktarFile, webshopFile]);
 
   async function handleCompare() {
@@ -57,16 +57,21 @@ function App() {
 
     for (const row of raktarData) {
       const cikkszam = row["Cikk-kód"];
-      const keszlet = Number(row["Szabad"] ?? 0);
+      let szabad = Number(row["Szabad"] ?? 0);
+      const keszleten = Number(row["Készleten"] ?? 0);
       const nev = row["Megnevezés"];
+
+      const hasznaltKeszlet = szabad < 0 ? keszleten : szabad;
+
       if (!raktarMap[cikkszam]) {
         raktarMap[cikkszam] = { nev, keszlet: 0 };
       }
-      raktarMap[cikkszam].keszlet += keszlet;
+      raktarMap[cikkszam].keszlet += hasznaltKeszlet;
       raktarCikkszamok.add(cikkszam);
     }
 
     const elteresek = [];
+    const egyezok = [];
     const csakWebshopban = [];
     const webshopCikkszamok = new Set();
 
@@ -78,16 +83,23 @@ function App() {
       webshopCikkszamok.add(cikkszam);
 
       const raktar = raktarMap[cikkszam];
-      if (raktar && webshopKeszlet > raktar.keszlet) {
-        elteresek.push({
-          "Cikkszám": cikkszam,
-          "Termék név": nev,
-          "Webshop készlet": webshopKeszlet,
-          "Raktárkészlet": raktar.keszlet,
-        });
-      }
-
-      if (!raktar) {
+      if (raktar) {
+        if (webshopKeszlet > raktar.keszlet) {
+          elteresek.push({
+            "Cikkszám": cikkszam,
+            "Termék név": nev,
+            "Webshop készlet": webshopKeszlet,
+            "Raktárkészlet": raktar.keszlet,
+          });
+        } else {
+          egyezok.push({
+            "Cikkszám": cikkszam,
+            "Termék név": nev,
+            "Webshop készlet": webshopKeszlet,
+            "Raktárkészlet": raktar.keszlet,
+          });
+        }
+      } else {
         csakWebshopban.push({
           "Cikkszám": cikkszam,
           "Termék név": nev,
@@ -108,7 +120,7 @@ function App() {
       }
     }
 
-    setSummary({ elteresek, csakWebshopban, csakRaktarban });
+    setSummary({ elteresek, egyezok, csakWebshopban, csakRaktarban });
   }
 
   const handleExport = () => {
@@ -118,6 +130,9 @@ function App() {
     const elteresSheet = XLSX.utils.json_to_sheet(
       summary.elteresek.length ? summary.elteresek : [{ "Cikkszám": "", "Termék név": "", "Webshop készlet": "", "Raktárkészlet": "" }]
     );
+    const egyezokSheet = XLSX.utils.json_to_sheet(
+      summary.egyezok.length ? summary.egyezok : [{ "Cikkszám": "", "Termék név": "", "Webshop készlet": "", "Raktárkészlet": "" }]
+    );
     const webshopOnlySheet = XLSX.utils.json_to_sheet(
       summary.csakWebshopban.length ? summary.csakWebshopban : [{ "Cikkszám": "", "Termék név": "", "Kategória": "" }]
     );
@@ -126,6 +141,7 @@ function App() {
     );
 
     XLSX.utils.book_append_sheet(wb, elteresSheet, "Eltérések");
+    XLSX.utils.book_append_sheet(wb, egyezokSheet, "Egyező tételek");
     XLSX.utils.book_append_sheet(wb, webshopOnlySheet, "Csak_webshopban");
     XLSX.utils.book_append_sheet(wb, raktarOnlySheet, "Csak_raktarban");
 
@@ -242,6 +258,25 @@ function App() {
           </div>
 
           {renderTable("Eltérések", summary.elteresek)}
+
+          <div style={{ marginTop: "2rem" }}>
+            <button
+              onClick={() => setShowMatches(!showMatches)}
+              style={{
+                backgroundColor: showMatches ? "#ddd" : "#6ba539",
+                color: showMatches ? "#333" : "white",
+                padding: "0.5rem 1rem",
+                border: "none",
+                borderRadius: "6px",
+                cursor: "pointer",
+                fontWeight: "bold",
+              }}
+            >
+              {showMatches ? "Egyező tételek elrejtése" : "Egyező tételek megjelenítése"}
+            </button>
+            {showMatches && renderTable("Egyező tételek", summary.egyezok)}
+          </div>
+
           {renderTable("Csak a webshopban", summary.csakWebshopban)}
           {renderTable("Csak a raktárban", summary.csakRaktarban)}
         </>
