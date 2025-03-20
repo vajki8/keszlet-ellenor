@@ -93,8 +93,14 @@ function App() {
 
     const wb = XLSX.utils.book_new();
     const elteresSheet = XLSX.utils.json_to_sheet(elteresek);
-    const webshopOnlySheet = XLSX.utils.json_to_sheet(csakWebshopban);
-    const raktarOnlySheet = XLSX.utils.json_to_sheet(csakRaktarban);
+    const webshopOnlySheet = XLSX.utils.json_to_sheet(
+      csakWebshopban.length ? csakWebshopban : [{ "Cikkszám": "", "Termék név": "", "Kategória": "" }]
+    );
+    
+    const raktarOnlySheet = XLSX.utils.json_to_sheet(
+      csakRaktarban.length ? csakRaktarban : [{ "Cikk-kód": "", "Megnevezés": "", "Szabad készlet": "" }]
+    );
+    
 
     XLSX.utils.book_append_sheet(wb, elteresSheet, "Eltérések");
     XLSX.utils.book_append_sheet(wb, webshopOnlySheet, "Csak_webshopban");
