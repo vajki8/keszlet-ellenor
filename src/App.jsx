@@ -1,3 +1,5 @@
+// cSpell:disable
+
 import { useState, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
 
@@ -43,6 +45,7 @@ function App() {
     if (raktarFile && webshopFile) {
       handleCompare();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raktarFile, webshopFile]);
 
   async function handleCompare() {
