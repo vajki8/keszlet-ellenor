@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import * as XLSX from "xlsx";
+import HirlevelSzinkron from "./HirlevelSzinkron";
+
 
 function App() {
   const [raktarFile, setRaktarFile] = useState(null);
@@ -46,6 +48,7 @@ function App() {
     if (raktarFile && webshopFile) {
       handleCompare();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raktarFile, webshopFile]);
 
   async function handleCompare() {
@@ -282,8 +285,10 @@ function App() {
         </>
       )}
 
+      <HirlevelSzinkron />
+
       <footer style={{ marginTop: "3rem", fontSize: "0.85rem", color: "#888", textAlign: "center" }}>
-        Verzió: 1.0.0 – Utolsó frissítés: 2025. március 20.
+        Verzió: 1.0.3 – Utolsó frissítés: 2025. április 17.
       </footer>
     </main>
   );
