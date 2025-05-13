@@ -288,7 +288,7 @@ function App() {
       <HirlevelSzinkron />
 
       <footer style={{ marginTop: "3rem", fontSize: "0.85rem", color: "#888", textAlign: "center" }}>
-        Verzió: 1.0.3 – Utolsó frissítés: 2025. április 17.
+        Verzió: 1.0.3 – Utolsó frissítés: 2025. május 13.
       </footer>
     </main>
   );
