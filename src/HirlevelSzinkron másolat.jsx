@@ -1,6 +1,7 @@
 // cspell:disable
 import { useState, useCallback, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
+import { useMemo } from "react";
 
 
 export default function HirlevelSzinkron() {
@@ -67,7 +68,7 @@ const nameMismatches = useMemo(() => {
     .filter(c => mcMap.has(c["Email-cím"]))
     .map(c => ({
       email:           c["Email-cím"],
-      hansaName:       c["Kontaktszemély"],
+      hansaName:       c["Név"],
       mailchimpName:   mcMap.get(c["Email-cím"])
     }))
     .filter(item => item.hansaName !== item.mailchimpName);
@@ -89,10 +90,10 @@ const exportNameMismatches = () => {
     rows
       .map(r => ({
         "Kontakt sorszám": String(r["Kontakt sorszám"] || r["Kontaktsorszám"] || "").trim(),
-        "Kontaktszemély":    String(r["Kontaktszemély"] || "").trim(),
+        Név:               String(r["Név"] || r["Kontakt személy neve"] || "").trim(),
         "Email-cím":       String(r["Email-cím"] || r["E-mail-cím"] || "")
                              .toLowerCase().trim(),
-        "Besorolás":         String(r["Besorolás"] || "").trim()
+        Besorolás:         String(r["Besorolás"] || "").trim()
       }))
       .filter(r => r["Email-cím"])
   , []);
@@ -273,12 +274,6 @@ const handleFile = useCallback((file, setter, type = "") => {
         </div>
       );
     }
-    useEffect(() => {
-      if (hansaContacts.length) {
-        console.log("Hansa sample keys:", Object.keys(hansaContacts[0]));
-        console.log("Hansa sample row:", hansaContacts[0]);
-      }
-    }, [hansaContacts]);
     
     // default: hansa vagy unsub teszt
     return (
@@ -342,7 +337,57 @@ const handleFile = useCallback((file, setter, type = "") => {
       >
         Húzd ide a Hansa, Mailchimp és Unsubscribed fájlokat (.xlsx/.csv)
       </div>
+{/* 1) Gomb a név-eltérések mutatásához/elrejtéséhez */}
+<div style={{ margin: "2rem 0" }}>
+      <button
+        onClick={() => setShowNameMismatches(v => !v)}
+        style={{
+          padding: "0.5rem 1rem",
+          background: "#6ba539",
+          color: "#fff",
+          border: "none",
+          borderRadius: 4,
+          cursor: "pointer"
+        }}
+      >
+        {showNameMismatches ? "Név eltérések elrejtése" : "Név eltérések mutatása"}
+      </button>
+    </div>
 
+    {/* 2) Feltételesen rendereljük a nameMismatches táblát */}
+    {showNameMismatches && (
+      <section style={{ marginTop: 32, maxWidth: 800, margin: "32px auto" }}>
+        <h3 style={{ color: "#6ba539" }}>
+          Név‐eltérések (Hansa ↔ Mailchimp): {nameMismatches.length}
+        </h3>
+        {nameMismatches.length === 0 ? (
+          <p>Nincs eltérés.</p>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", background: "#fff" }}>
+            <thead>
+              <tr>
+                {["Email-cím","Hansa Név","Mailchimp Név"].map(col => (
+                  <th key={col} style={{
+                    borderBottom:"2px solid #ccc", padding:8, textAlign:"left"
+                  }}>
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {nameMismatches.map((r,i) => (
+                <tr key={i} style={{ background: i%2 ? "#fafafa" : "transparent" }}>
+                  <td style={{ padding:8 }}>{r.email}</td>
+                  <td style={{ padding:8 }}>{r.hansaName}</td>
+                  <td style={{ padding:8 }}>{r.mailchimpName}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    )}
       <div style={{ marginBottom: 12 }}>
         <label>
           Hansa lista:
@@ -396,18 +441,31 @@ const handleFile = useCallback((file, setter, type = "") => {
           {showHiány ? "Új kontaktok elrejtése" : "Új kontaktok mutatása"}
         </button>
       </div>
-
+    <button
+      onClick={() => setShowNameMismatches(v => !v)}
+      style={{
+        padding: "0.5rem 1rem",
+        background: "#6ba539",
+        color: "#fff",
+        border: "none",
+        borderRadius: 4,
+        cursor: "pointer",
+        marginRight: "1rem"
+      }}
+    >
+      {showNameMismatches
+        ? "Név eltérések elrejtése"
+        : "Név eltérések mutatása"}
+    </button>
       {showHiány && hiányzók.length > 0 && (
         <section style={{ marginTop: 16 }}>
           <h3>Új kontaktok ({hiányzók.length})</h3>
           <button onClick={exportExcel} style={{ marginBottom: 8 }}>Exportálás Excelbe</button>
           <button onClick={filterUnsubscribed} style={{ marginLeft: 8 }}>Leiratkozottak kiszűrése</button>
-          <button onClick={exportNameMismatches} style={{ marginLeft: 8 }}>Név-eltérések exportálása</button>
-
           <table style={{ width: "100%", borderCollapse: "collapse", background: "#f8f0ff" }}>
           <thead>
   <tr>
-    {["Kontakt sorszám","Kontakszemély","Email-cím","Besorolás"].map(col => {
+    {["Kontakt sorszám","Név","Email-cím","Besorolás"].map(col => {
       const isSorted = sortConfig.key === col;
       const arrow    = isSorted
         ? sortConfig.direction === "asc" ? " ▲" : " ▼"
@@ -439,7 +497,7 @@ const handleFile = useCallback((file, setter, type = "") => {
               {pagedHiányzók.map((c, i) => (
                 <tr key={i}>
                   <td style={{ padding: 8 }}>{c["Kontakt sorszám"]}</td>
-                  <td style={{ padding: 8 }}>{c["Kontakszemély"]}</td>
+                  <td style={{ padding: 8 }}>{c["Név"]}</td>
                   <td style={{ padding: 8 }}>{c["Email-cím"]}</td>
                   <td style={{ padding: 8 }}>{c["Besorolás"]}</td>
                 </tr>
