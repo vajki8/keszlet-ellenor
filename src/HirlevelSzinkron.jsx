@@ -6,6 +6,9 @@ import * as XLSX from "xlsx";
 export default function HirlevelSzinkron() {
   // Állapotok
   const [hansaContacts, setHansaContacts] = useState([]);
+  const [filterText, setFilterText] = useState("");
+  const [filterField, setFilterField] = useState("Email-cím");
+  const [showHansaMissing, setShowHansaMissing] = useState(true);
   const [mailchimpContacts, setMailchimpContacts] = useState([]);
   const [unsubscribedContacts, setUnsubscribedContacts] = useState([]);
   const [hiányzók, setHiányzók] = useState([]);
@@ -17,6 +20,12 @@ export default function HirlevelSzinkron() {
     mailchimp: false,
     unsubscribed: false
   });
+  const defaultColumns = [
+    { key: "Kontakt sorszám", label: "Kontakt sorszám" },
+    { key: "Kontaktszemély",  label: "Kontaktszemély"  },
+    { key: "Email-cím",        label: "Email-cím"        },
+    { key: "Besorolás",        label: "Besorolás"        },
+  ];
   const [sortConfig, setSortConfig] = useState({
     key: "Kontakt sorszám",
     direction: "asc"
@@ -37,27 +46,9 @@ export default function HirlevelSzinkron() {
   // Új kontaktok pagináció
   const [showHiány, setShowHiány] = useState(true);
   const [page, setPage] = useState(1);
-  const totalHiányPage = Math.ceil(hiányzók.length / PAGE_SIZE);
   // először rendezzük a teljes listát a sortConfig alapján
-const sortedHiányzók = useMemo(() => {
-  const arr = [...hiányzók];
-  arr.sort((a, b) => {
-    const A = (a[sortConfig.key] || "").toString().toLowerCase();
-    const B = (b[sortConfig.key] || "").toString().toLowerCase();
-    if (A < B) return sortConfig.direction === "asc" ? -1 : 1;
-    if (A > B) return sortConfig.direction === "asc" ? 1 : -1;
-    return 0;
-  });
-  return arr;
-}, [hiányzók, sortConfig]);
 
-// paginált rész
-const pagedHiányzók = sortedHiányzók.slice(
-  (page - 1) * PAGE_SIZE,
-  page * PAGE_SIZE
-);
-
-const nameMismatches = useMemo(() => {
+  const nameMismatches = useMemo(() => {
   // készítsünk egy map-et mailchimp email → név
   const mcMap = new Map(
     mailchimpContacts.map(c => [c["Email-cím"], c["Név"]])
@@ -84,30 +75,167 @@ const exportNameMismatches = () => {
   XLSX.writeFile(wb, "nev_elteresek.xlsx");
 };
 
+// Végigfilterezi, rendezi és paginálja a kapott rows tömböt, majd visszaadja a JSX táblát
+function DataTable({ title, rows, columns = defaultColumns }) {
+
+  // 2) szűrés
+  const filtered = rows.filter(r => {
+    if (!filterText) return true;
+    const val = String(r[filterField] ?? "").toLowerCase();
+    return val.includes(filterText.toLowerCase());
+  });
+
+  // 3) rendezés
+  const sorted = [...filtered].sort((a, b) => {
+    const aVal = String(a[sortConfig.key]  ?? "");
+    const bVal = String(b[sortConfig.key]  ?? "");
+    if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortConfig.direction === "asc" ?  1 : -1;
+    return 0;
+  });
+
+  // 4) pagináció
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
+  const paged = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  return (
+    <section style={{ marginTop: 16 }}>
+      <h3>{title} ({filtered.length})</h3>
+
+      {/* Szűrés */}
+      <div style={{ marginBottom: 12, display: "flex", alignItems: "center" }}>
+        <label>
+          Szűrés mező:&nbsp;
+          <select
+            value={filterField}
+            onChange={e => { setFilterField(e.target.value); setPage(1); }}
+          >
+            {columns.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+        </label>
+        <input
+          value={filterText}
+          onChange={e => { setFilterText(e.target.value); setPage(1); }}
+          placeholder="keresés…"
+          style={{ marginLeft: 8, padding: "4px 8px", flex: 1 }}
+        />
+      </div>
+
+      {/* Táblázat */}
+      <table style={{
+        width: "100%",
+        borderCollapse: "collapse",
+        background: "#f8f0ff"
+      }}>
+        <thead>
+          <tr>
+            {columns.map(({ key, label }) => {
+              const isSorted = sortConfig.key === key;
+              const arrow = isSorted ? (sortConfig.direction === "asc" ? " ▲" : " ▼") : "";
+              return (
+                <th
+                  key={key}
+                  style={{
+                    borderBottom: "1px solid #ccc",
+                    padding: 8,
+                    textAlign: "left",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => {
+                    const dir = isSorted && sortConfig.direction === "asc" ? "desc" : "asc";
+                    setSortConfig({ key, direction: dir });
+                  }}
+                >
+                  {label}{arrow}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+  {paged.map((row, i) => (
+    <tr key={i}>
+      {columns.map(({ key }) => {
+        let cell = row[key];
+        // 4. fallback "Kontakt sorszám"-ra
+        if (key === "Kontakt sorszám" && !cell) {
+          cell = row["Phone Number"] || row["Phone number"] || "";
+        }
+        // a "Besorolás" esetén nincs külön Tags-fallback
+        return <td key={key} style={{ padding: 8 }}>{cell}</td>;
+      })}
+    </tr>
+  ))}
+</tbody>
+      </table>
+
+      {/* Pagináció */}
+      <div style={{ marginTop: 8, display: "flex", alignItems: "center" }}>
+        <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
+          Előző
+        </button>
+        <span style={{ margin: "0 12px" }}>Oldal {page} / {totalPages}</span>
+        <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+          Következő
+        </button>
+      </div>
+    </section>
+  );
+};
+
   // 1) Hansa-normalizáló
-  const normalizeHansa = useCallback(rows =>
-    rows
-      .map(r => ({
+  const normalizeHansa = useCallback((rows) => {
+    let lastBesorolas = "";
+    return rows.reduce((acc, r) => {
+      // 2) Email-cím kiszűrése
+      const email = (String(r["Email-cím"] ?? r["E-mail-cím"] ?? "")).toLowerCase().trim();
+      if (!email) return acc;  // ha üres az email, kihagyjuk
+
+      // 3) Besorolás átörökítése
+      let besorol = (r["Besorolás"] || "").trim();
+      if (besorol) {
+        lastBesorolas = besorol;
+      } else {
+        besorol = lastBesorolas;
+      }
+
+      // 4) Más mezők
+      acc.push({
         "Kontakt sorszám": String(r["Kontakt sorszám"] || r["Kontaktsorszám"] || "").trim(),
-        "Kontaktszemély":    String(r["Kontaktszemély"] || "").trim(),
-        "Email-cím":       String(r["Email-cím"] || r["E-mail-cím"] || "")
-                             .toLowerCase().trim(),
-        "Besorolás":         String(r["Besorolás"] || "").trim()
-      }))
-      .filter(r => r["Email-cím"])
-  , []);
+        "Kontaktszemély":   String(r["Kontaktszemély"] || r["Név"] || "").trim(),
+        "Email-cím":        email,
+        "Besorolás":        besorol
+      });
+      return acc;
+    }, []);
+  }, []);
 
     // 2) Mailchimp- és Unsubscribed-normalizáló: egységes kulcsokkal
-    const normalizeMailchimp = useCallback(rows =>
-      rows
-        .map(r => ({
-          "Kontakt sorszám": String(r["Phone Number"]     || r["Phone number"]    || "").trim(),
-          "Név":              String(r["First Name"]      || r["First name"]      || "").trim(),
-          "Email-cím":        String(r["Email address"]    || r["Email Address"]   || "").toLowerCase().trim(),
-          "Besorolás":        String(r["Tags"]            || r["tags"]            || "").trim()
-        }))
-        .filter(r => r["Email-cím"])
-    , []);
+    const normalizeMailchimp = useCallback((rows) => {
+      return rows
+        .map(r => {
+          const kontaktSorszam = String(r["Phone Number"] || r["Phone number"] || "").trim();
+          const nev            = String(r["First Name"]   || r["First name"]   || "").trim();
+          const email          = String(r["Email address"]|| r["Email Address"]|| "")
+                                   .toLowerCase()
+                                   .trim();
+          const rawTags        = String(r["TAGS"]         || r["tags"]         || "");
+          const tagsArr        = rawTags
+                                   .replace(/"/g, "")
+                                   .split(",")
+                                   .map(s => s.trim())
+                                   .filter(Boolean);
+          const besorolas      = tagsArr.join(", ");
+          console.log(r["TAGS"])
+          return {
+            "Kontakt sorszám": kontaktSorszam,
+            "Név":             nev,
+            "Email-cím":       email,
+            "Besorolás":       besorolas
+          };
+        })
+        .filter(r => r["Email-cím"]);
+    }, []);
 
   // 3) Átfogó beolvasó
 const handleFile = useCallback((file, setter, type = "") => {
@@ -273,12 +401,6 @@ const handleFile = useCallback((file, setter, type = "") => {
         </div>
       );
     }
-    useEffect(() => {
-      if (hansaContacts.length) {
-        console.log("Hansa sample keys:", Object.keys(hansaContacts[0]));
-        console.log("Hansa sample row:", hansaContacts[0]);
-      }
-    }, [hansaContacts]);
     
     // default: hansa vagy unsub teszt
     return (
@@ -395,70 +517,66 @@ const handleFile = useCallback((file, setter, type = "") => {
         <button onClick={() => setShowHiány(v => !v)}>
           {showHiány ? "Új kontaktok elrejtése" : "Új kontaktok mutatása"}
         </button>
+        <button onClick={() => setShowHansaMissing(v => !v)} style={{ marginLeft : 8 }} > {showHansaMissing ? "Mailchimpből hiányzó kontaktok mutatása" : "Hansából hiányzó kontaktok mutatása"}</button>
       </div>
 
-      {showHiány && hiányzók.length > 0 && (
-        <section style={{ marginTop: 16 }}>
-          <h3>Új kontaktok ({hiányzók.length})</h3>
-          <button onClick={exportExcel} style={{ marginBottom: 8 }}>Exportálás Excelbe</button>
-          <button onClick={filterUnsubscribed} style={{ marginLeft: 8 }}>Leiratkozottak kiszűrése</button>
-          <button onClick={exportNameMismatches} style={{ marginLeft: 8 }}>Név-eltérések exportálása</button>
+      {showHiány && (
+  <section style={{ marginTop: 16 }}>
+    {/* Dinamikus cím */}
+    <h3>
+      {showHansaMissing
+        ? `Új kontaktok (${hiányzók.length})`
+        : `Mailchimpben de Hansában nincs (${feleslegesek.length})`}
+    </h3>
 
-          <table style={{ width: "100%", borderCollapse: "collapse", background: "#f8f0ff" }}>
-          <thead>
-  <tr>
-    {["Kontakt sorszám","Kontakszemély","Email-cím","Besorolás"].map(col => {
-      const isSorted = sortConfig.key === col;
-      const arrow    = isSorted
-        ? sortConfig.direction === "asc" ? " ▲" : " ▼"
-        : "";
-      return (
-        <th
-          key={col}
-          style={{
-            borderBottom: "1px solid #ccc",
-            padding: 8,
-            textAlign: "left",
-            cursor: "pointer"
-          }}
-          onClick={() => {
-            const direction =
-              isSorted && sortConfig.direction === "asc"
-                ? "desc"
-                : "asc";
-            setSortConfig({ key: col, direction });
-          }}
-        >
-          {col}{arrow}
-        </th>
-      );
-    })}
-  </tr>
-</thead>
-            <tbody>
-              {pagedHiányzók.map((c, i) => (
-                <tr key={i}>
-                  <td style={{ padding: 8 }}>{c["Kontakt sorszám"]}</td>
-                  <td style={{ padding: 8 }}>{c["Kontakszemély"]}</td>
-                  <td style={{ padding: 8 }}>{c["Email-cím"]}</td>
-                  <td style={{ padding: 8 }}>{c["Besorolás"]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div style={{ marginTop: 8 }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
-              Előző
-            </button>
-            <span style={{ margin: "0 12px" }}>
-              Oldal {page} / {totalHiányPage}
-            </span>
-            <button onClick={() => setPage(p => Math.min(totalHiányPage, p + 1))} disabled={page === totalHiányPage}>
-              Következő
-            </button>
-          </div>
-        </section>
-      )}
+    {/* Akciógombok */}
+    {showHansaMissing ? (
+      <>
+        <button onClick={exportExcel} style={{ marginRight: 8 }}>
+          Exportálás Excelbe
+        </button>
+        <button onClick={filterUnsubscribed} style={{ marginRight: 8 }}>
+          Leiratkozottak kiszűrése
+        </button>
+        <button onClick={exportNameMismatches}>
+          Név-eltérések exportálása
+        </button>
+      </>
+    ) : (
+      <button onClick={() => {
+        // ha szeretnél exportot a feleslegesekre:
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(feleslegesek);
+        XLSX.utils.book_append_sheet(wb, ws, "Feleslegesek");
+        XLSX.writeFile(wb, "mailchimp_feleslegesek.xlsx");
+      }}>
+        Exportálás Excelbe
+      </button>
+    )}
+
+    {/* Táblázat ugyanazzal a renderTable függvénnyel */}
+    {showHiány && (
+  showHansaMissing ? (
+    <DataTable
+      title="Új kontaktok (Hansában de Mailchimpben nincs)"
+      rows={hiányzók}
+    />
+  ) : (
+    <DataTable
+      title="Mailchimpben de Hansában nincs"
+      rows={feleslegesek}
+      columns={[
+        { key: "Kontakt sorszám", label: "Kontakt sorszám" },
+        { key: "Név",              label: "First Name"        },
+        { key: "Email-cím",        label: "Email-cím"         },
+        { key: "Besorolás",        label: "Besorolás"         },
+      ]}
+    />
+  )
+)}
+
+  </section>
+)}
 
       {/* Teszt adatok */}
       {showTestData && renderTestTable()}
