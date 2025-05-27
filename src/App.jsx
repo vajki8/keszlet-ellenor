@@ -54,55 +54,86 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [raktarFile, webshopFile]);
   async function handleCompare() {
-    const raktarData = await readExcel(raktarFile);
+    // 1. Excel fájlok beolvasása
+    let raktarData = await readExcel(raktarFile);
     const webshopData = await readExcel(webshopFile);
+  
+    // 2. Csak a 600 vagy 900 szériás sorokat tartjuk meg
+    raktarData = raktarData.filter(row => {
+      const helyszin = String(row["Helyszín "] ?? "").trim();
+      const szeriaszam = String(row["Szériaszám"] ?? "").trim();
+      return helyszin === "600" || helyszin === "900" || szeriaszam === "600" || szeriaszam === "900" ||  helyszin === "" || szeriaszam === "";
+    });
+  
+    // 3. Cikkszám szerint összesítés (600/900 sorok alapján)
     const raktarMap = {};
     const raktarCikkszamok = new Set();
+    const cikkszamDarabszamok = [];
+  
     for (const row of raktarData) {
-      const cikkszam = row["Cikk-kód"];
-      let szabad = Number(row["Szabad"] ?? 0);
+      const cikkszam = String(row["Cikk-kód"] ?? "").toUpperCase();
+      const szabad = Number(row["Szabad"] ?? 0);
       const keszleten = Number(row["Készleten"] ?? 0);
       const nev = row["Megnevezés"];
       const hasznaltKeszlet = szabad < 0 ? keszleten : szabad;
+  
       if (!raktarMap[cikkszam]) raktarMap[cikkszam] = { nev, keszlet: 0 };
       raktarMap[cikkszam].keszlet += hasznaltKeszlet;
       raktarCikkszamok.add(cikkszam);
     }
+  
+    // 4. Összesített cikkszám/készlet lista
+    for (const cikkszam of Array.from(raktarCikkszamok).sort()) {
+      cikkszamDarabszamok.push({
+        "Cikkszám": cikkszam,
+        "Megnevezés": raktarMap[cikkszam].nev,
+        "Raktári készlet (600/900)": raktarMap[cikkszam].keszlet
+      });
+    }
+  
+    // 5. Részletes, soronkénti lista helyszínnel együtt
+    const reszletezettKeszletLista = raktarData.map(row => {
+      return {
+        "Cikkszám": String(row["Cikk-kód"] ?? "").toUpperCase(),
+        "Megnevezés": row["Megnevezés"],
+        "Helyszín": String(row["Helyszín "] ?? "").trim() || "-",
+        "Szabad készlet": Number(row["Szabad"] ?? 0)
+      };
+    });
+  
+    // 6. Webshop összehasonlítás
     const elteresek = [];
     const egyezok = [];
-    const csakWebshopban = [];
     const webshopCikkszamok = new Set();
+  
     for (const row of webshopData) {
-      const cikkszam = row["Cikkszám"]?.toUpperCase();
+      const cikkszam = String(row["Cikkszám"] ?? "").toUpperCase();
       const webshopKeszlet = Number(row["Raktárkészlet"] ?? 0);
       const nev = row["Termék Név"];
       const kategoria = row["Kategória"];
+  
       webshopCikkszamok.add(cikkszam);
       const raktar = raktarMap[cikkszam];
-      if (raktar) {
-        if (webshopKeszlet > raktar.keszlet) {
-          elteresek.push({
-            "Cikkszám": cikkszam,
-            "Termék név": nev,
-            "Webshop készlet": webshopKeszlet,
-            "Raktárkészlet": raktar.keszlet
-          });
-        } else {
-          egyezok.push({
-            "Cikkszám": cikkszam,
-            "Termék név": nev,
-            "Webshop készlet": webshopKeszlet,
-            "Raktárkészlet": raktar.keszlet
-          });
-        }
-      } else {
-        csakWebshopban.push({
+      const raktarKeszlet = raktar ? raktar.keszlet : 0;
+  
+      if (webshopKeszlet !== raktarKeszlet) {
+        elteresek.push({
           "Cikkszám": cikkszam,
           "Termék név": nev,
-          "Kategória": kategoria
+          "Webshop készlet": webshopKeszlet,
+          "Raktárkészlet": raktarKeszlet
+        });
+      } else {
+        egyezok.push({
+          "Cikkszám": cikkszam,
+          "Termék név": nev,
+          "Webshop készlet": webshopKeszlet,
+          "Raktárkészlet": raktarKeszlet
         });
       }
     }
+  
+    // 7. Csak raktárban lévő cikkszámok (nincs webshopban)
     const csakRaktarban = [];
     for (const cikkszam of raktarCikkszamok) {
       if (!webshopCikkszamok.has(cikkszam)) {
@@ -114,8 +145,19 @@ function App() {
         });
       }
     }
-    setSummary({ elteresek, egyezok, csakWebshopban, csakRaktarban });
+  
+    // 8. Eredmények tárolása megjelenítéshez
+    setSummary({
+      elteresek,
+      egyezok,
+      csakWebshopban: [],
+      csakRaktarban,
+      cikkszamDarabszamok,
+      reszletezettKeszletLista
+    });
   }
+  
+  
 
   const handleExport = () => {
     if (!summary) return;
@@ -400,7 +442,7 @@ function App() {
               textAlign: "center"
             }}
           >
-            Verzió: 1.0.5 – Utolsó frissítés: 2025. május 22.
+            Verzió: 1.0.6 – Utolsó frissítés: 2025. május 27.
           </footer>
         </main>
       )}
