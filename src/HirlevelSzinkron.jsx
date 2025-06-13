@@ -1,5 +1,5 @@
 // cspell:disable
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef} from "react";
 import * as XLSX from "xlsx";
 
 
@@ -15,6 +15,7 @@ export default function HirlevelSzinkron() {
   const [feleslegesek, setFeleslegesek] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
+  const allRawHansaEmails = useRef(new Set());
   const [status, setStatus] = useState({
     hansa: false,
     mailchimp: false,
@@ -183,32 +184,51 @@ function DataTable({ title, rows, columns = defaultColumns }) {
   );
 };
 
-  // 1) Hansa-normalizáló
-  const normalizeHansa = useCallback((rows) => {
-    let lastBesorolas = "";
-    return rows.reduce((acc, r) => {
-      // 2) Email-cím kiszűrése
-      const email = (String(r["Email-cím"] ?? r["E-mail-cím"] ?? "")).toLowerCase().trim();
-      if (!email) return acc;  // ha üres az email, kihagyjuk
+const normalizeHansa = useCallback((rows) => {
+  let lastBesorolas = "";
 
-      // 3) Besorolás átörökítése
-      let besorol = (r["Besorolás"] || "").trim();
-      if (besorol) {
-        lastBesorolas = besorol;
-      } else {
-        besorol = lastBesorolas;
+  const cleanEmail = (raw) => {
+    const rawEmail = String(raw ?? "")
+    const email = String(raw ?? "")
+      .split(/[;,]/)[0] // csak az első email (ha több van pontosvesszővel vagy vesszővel elválasztva)
+      .replace(/\.+$/, "") // végéről pont eltávolítása
+      .replace(/@{2,}/g, "@") // dupla vagy több kukacból egy kukac
+      .toLowerCase()
+      .normalize("NFD") // ékezetek bontása
+      .replace(/[\u0300-\u036f]/g, "") // diakritikus karakterek törlése
+      .trim();
+
+
+      if (rawEmail.toLowerCase().includes("igazgató") || email.includes("igazgató")) {
+        console.log("👉 1380. sor vagy igazgató e-mail:");
+        console.log("  Nyers e-mail:", rawEmail);
+        console.log("  Normalizált:", email);
       }
+    
+    return email;
+  };
 
-      // 4) Más mezők
-      acc.push({
-        "Kontakt sorszám": String(r["Kontakt sorszám"] || r["Kontaktsorszám"] || "").trim(),
-        "Kontaktszemély":   String(r["Kontaktszemély"] || r["Név"] || "").trim(),
-        "Email-cím":        email,
-        "Besorolás":        besorol
-      });
-      return acc;
-    }, []);
+  return rows.reduce((acc, r) => {
+    const email = cleanEmail(r["E-mail-cím"] ?? r["Kontakt személy e-mail-címe"]);
+    if (!email) return acc;
+
+    let besorol = (r["Besorolás"] || "").trim();
+    if (besorol) {
+      lastBesorolas = besorol;
+    } else {
+      besorol = lastBesorolas;
+    }
+
+    acc.push({
+      "Kontakt sorszám": String(r["Kontakt sorszám"] || r["Kontaktsorszám"] || "").trim(),
+      "Kontaktszemély":   String(r["Kontaktszemély"] || r["Név"] || "").trim(),
+      "Email-cím":        email,
+      "Besorolás":        besorol
+    });
+    return acc;
   }, []);
+}, []);
+
 
     // 2) Mailchimp- és Unsubscribed-normalizáló: egységes kulcsokkal
     const normalizeMailchimp = useCallback((rows) => {
@@ -226,7 +246,6 @@ function DataTable({ title, rows, columns = defaultColumns }) {
                                    .map(s => s.trim())
                                    .filter(Boolean);
           const besorolas      = tagsArr.join(", ");
-          console.log(r["TAGS"])
           return {
             "Kontakt sorszám": kontaktSorszam,
             "Név":             nev,
@@ -248,10 +267,9 @@ const handleFile = useCallback((file, setter, type = "") => {
       let json = [];
 
       if (type === "hansa") {
-        // Hansa: natív SheetJS
         if (ext === "csv") {
           const text = e.target.result;
-          const wb = XLSX.read(text, { type: "string" });
+          const wb = XLSX.read(text, { type: "binary" });
           const sh = wb.Sheets[wb.SheetNames[0]];
           json = XLSX.utils.sheet_to_json(sh, { defval: "" });
         } else {
@@ -260,7 +278,32 @@ const handleFile = useCallback((file, setter, type = "") => {
           const sh = wb.Sheets[wb.SheetNames[0]];
           json = XLSX.utils.sheet_to_json(sh, { defval: "" });
         }
+      
+        // 🔧 itt jön a nyers email kigyűjtés
+        const allEmails = json.flatMap(r => {
+          const raw1 = String(r["E-mail-cím"] ?? "").toLowerCase().trim();
+          const raw2 = String(r["Kontakt személy e-mail-címe"] ?? "").toLowerCase().trim();
+        
+          return [raw1, raw2]
+            .map(e =>
+              e
+                .replace(/\.+$/, "")    // végi pont eltávolítása
+                .replace(/@{2,}/g, "@") // dupla kukac javítása
+                .trim()
+            )
+            .filter(email => email && !email.endsWith("@agrolanc.hu"));
+        });
+        
+        
+        allRawHansaEmails.current = new Set(allEmails);
+        
+        
+      
         json = normalizeHansa(json);
+        setter(json);
+        setStatus(s => ({ ...s, [type]: true }));
+      
+      
 
       } else {
         // Mailchimp és Unsubscribed: ugyanúgy, natív SheetJS → sheet_to_json
@@ -306,27 +349,30 @@ const handleFile = useCallback((file, setter, type = "") => {
     });
   }, [handleFile]);
 
-  // Összehasonlítás
-    const compareContacts = useCallback(() => {
-        setLoading(true);
-        setTimeout(() => {
-          // mindkét listában az "Email-cím" mezőt használjuk
-          const hSet = new Set(hansaContacts.map(c => c["Email-cím"]));
-          const mSet = new Set(mailchimpContacts.map(c => c["Email-cím"]));
-    
-        // új kontaktok: Hansa-ban van, Mailchimp-ben nincs
-          setHiányzók(
-            hansaContacts.filter(c => !mSet.has(c["Email-cím"]))
-          );
-        // feleslegesek: Mailchimp-ben van, Hansa-ban nincs
-          setFeleslegesek(
-            mailchimpContacts.filter(c => !hSet.has(c["Email-cím"]))
-          );
-    
-          setLoading(false);
-          setPage(1);
-        }, 300);
-      }, [hansaContacts, mailchimpContacts]);
+ // Összehasonlítás
+
+   const compareContacts = useCallback(() => {
+       setLoading(true);
+       setTimeout(() => {
+         // mindkét listában az "Email-cím" mezőt használjuk
+         const hSet = new Set(hansaContacts.map(c => c["Email-cím"]));
+         const mSet = new Set(mailchimpContacts.map(c => c["Email-cím"]));
+         const rawSet = allRawHansaEmails.current;
+        console.log("Hansa e-mailek:", allRawHansaEmails.current);
+
+       // új kontaktok: Hansa-ban van, Mailchimp-ben nincs
+         setHiányzók(
+           hansaContacts.filter(c => !mSet.has(c["Email-cím"]))
+         );
+       // feleslegesek: Mailchimp-ben van, Hansa-ban nincs
+         setFeleslegesek(
+          mailchimpContacts.filter(c => !rawSet.has(String(c["Email-cím"]).toLowerCase().trim()))
+        );
+         setLoading(false);
+         setPage(1);
+       }, 300);
+     }, [hansaContacts, mailchimpContacts]);
+  
 
   useEffect(() => {
     if (hansaContacts.length && mailchimpContacts.length) {
@@ -362,6 +408,7 @@ const handleFile = useCallback((file, setter, type = "") => {
     XLSX.utils.book_append_sheet(wb, ws, "UjKontaktok");
     XLSX.writeFile(wb, "uj_kontaktok.xlsx");
   };
+  
 
   // Teszt-táblázat
   const renderTestTable = () => {
@@ -519,6 +566,11 @@ const handleFile = useCallback((file, setter, type = "") => {
         </button>
         <button onClick={() => setShowHansaMissing(v => !v)} style={{ marginLeft : 8 }} > {showHansaMissing ? "Mailchimpből hiányzó kontaktok mutatása" : "Hansából hiányzó kontaktok mutatása"}</button>
       </div>
+      <div style={{ marginTop: 12 }}>
+        <button onClick={() => setShowTestData(v => !v)}>
+          {showTestData ? "Teszt adatok elrejtése" : "Teszt adatok mutatása"}
+        </button>
+      </div>
 
       {showHiány && (
   <section style={{ marginTop: 16 }}>
@@ -543,6 +595,7 @@ const handleFile = useCallback((file, setter, type = "") => {
         </button>
       </>
     ) : (
+      
       <button onClick={() => {
         // ha szeretnél exportot a feleslegesekre:
         const wb = XLSX.utils.book_new();
@@ -553,6 +606,7 @@ const handleFile = useCallback((file, setter, type = "") => {
         Exportálás Excelbe
       </button>
     )}
+    
 
     {/* Táblázat ugyanazzal a renderTable függvénnyel */}
     {showHiány && (
@@ -580,11 +634,6 @@ const handleFile = useCallback((file, setter, type = "") => {
 
       {/* Teszt adatok */}
       {showTestData && renderTestTable()}
-      <div style={{ marginTop: 12 }}>
-        <button onClick={() => setShowTestData(v => !v)}>
-          {showTestData ? "Teszt adatok elrejtése" : "Teszt adatok mutatása"}
-        </button>
-      </div>
     </main>
   );
 }

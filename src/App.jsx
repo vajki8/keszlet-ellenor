@@ -442,7 +442,7 @@ function App() {
               textAlign: "center"
             }}
           >
-            Verzió: 1.0.6 – Utolsó frissítés: 2025. május 27.
+            Verzió: 1.0.7 – Utolsó frissítés: 2025. június 3.
           </footer>
         </main>
       )}
