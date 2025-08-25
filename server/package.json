@@ -1,0 +1,16 @@
+{
+  "name": "unas-proxy",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.0",
+    "fast-xml-parser": "^4.4.1"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
