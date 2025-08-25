@@ -788,7 +788,7 @@ async function handleCompare() {
               textAlign: "center"
             }}
           >
-            Verzió: 1.0.7 – Utolsó frissítés: 2025. június 3.
+            Verzió: 1.0.8 – Utolsó frissítés: 2025. augusztus 25.
           </footer>
         </main>
       )}
