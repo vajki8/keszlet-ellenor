@@ -208,73 +208,120 @@ async function pushUpdates({ isDryRun }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
 }, [raktarFile]);
 
+// async function importWebshopFromUnas() {
+//   if (!summary) { alert("Először tölts be egy raktár Excel fájlt."); return; }
+
+//   try {
+//     // raktári kódok, ahogy a summary-ben vannak
+//     const raktarSkuk = (summary.cikkszamDarabszamok || [])
+//       .map(r => String(r["Cikkszám"] ?? "").trim())
+//       .filter(Boolean);
+
+//     if (raktarSkuk.length === 0) {
+//       alert("Nincs raktári cikkszám a listában (summary.cikkszamDarabszamok üres).");
+//       return;
+//     }
+
+//     setUnasLoading(true);
+//     setUnasError("");
+
+//     // BACKEND: { requestedSku, sku (UNAS), qty, matched }
+//     const unasList = await fetchUnasStock(raktarSkuk);
+//     // map: requestedSku -> { unasSku, qty, matched }
+//     const respMap = new Map(
+//       (unasList || []).map(x => [
+//         String(x.requestedSku || "").trim().toUpperCase(),
+//         { unasSku: String(x.sku || "").trim(), qty: Number(x.qty || 0), matched: x.matched || "none" }
+//       ])
+//     );
+
+//     // raktár összesítés
+//     const raktarMap = buildRaktarMapFromSummary(summary); // cikkszám (raktári) -> { nev, keszlet }
+
+//     const elteresek = [];
+//     const egyezok = [];
+//     const csakWebshopban = []; // itt most nem lesz extra, mert csak raktári kódokra kérdeztünk
+
+//     for (const [raktariKod, r] of raktarMap.entries()) {
+//       const key = String(raktariKod).toUpperCase();
+//       const hit = respMap.get(key);
+
+//       const unasSku = hit?.unasSku || raktariKod;  // ha fuzzy volt, ez az UNAS SKU
+//       const webshopKeszlet = hit ? hit.qty : 0;    // UNAS qty
+//       const raktarKeszlet = Number(r?.keszlet || 0);
+
+//       const sor = {
+//         "Cikkszám": unasSku,              // <- ETTŐL KEZDVE UNAS-SKU!
+//         "Raktári kód": raktariKod,        // megjelenítéshez
+//         "Termék név": r?.nev || "",
+//         "Webshop készlet": webshopKeszlet,
+//         "Raktárkészlet": raktarKeszlet,
+//         "Match": hit?.matched || "none"   // "exact" | "fuzzy" | "none"
+//       };
+
+//       if (webshopKeszlet !== raktarKeszlet) elteresek.push(sor);
+//       else egyezok.push(sor);
+//     }
+
+//     setSummary(s => ({ 
+//       ...s, 
+//       elteresek, 
+//       egyezok, 
+//       csakWebshopban,               // marad, ha később all:true/összes UNAS készlet is jön
+//     }));
+
+//     alert(`UNAS → Webshop táblák frissítve. Eltérések: ${elteresek.length}, Egyezők: ${egyezok.length}.`);
+//   } catch (e) {
+//     console.error(e);
+//     setUnasError(e.message || "Ismeretlen hiba");
+//     alert("Hiba: " + (e.message || e));
+//   } finally {
+//     setUnasLoading(false);
+//   }
+// }
+
 async function importWebshopFromUnas() {
-  if (!summary) { alert("Először tölts be egy raktár Excel fájlt."); return; }
-
+  if (!summary) return;
+  setUnasLoading(true);
   try {
-    // raktári kódok, ahogy a summary-ben vannak
-    const raktarSkuk = (summary.cikkszamDarabszamok || [])
-      .map(r => String(r["Cikkszám"] ?? "").trim())
-      .filter(Boolean);
-
-    if (raktarSkuk.length === 0) {
-      alert("Nincs raktári cikkszám a listában (summary.cikkszamDarabszamok üres).");
-      return;
-    }
-
-    setUnasLoading(true);
-    setUnasError("");
-
-    // BACKEND: { requestedSku, sku (UNAS), qty, matched }
+    const raktarSkuk = summary.cikkszamDarabszamok.map(r => String(r["Cikkszám"]).trim());
     const unasList = await fetchUnasStock(raktarSkuk);
-    // map: requestedSku -> { unasSku, qty, matched }
-    const respMap = new Map(
-      (unasList || []).map(x => [
-        String(x.requestedSku || "").trim().toUpperCase(),
-        { unasSku: String(x.sku || "").trim(), qty: Number(x.qty || 0), matched: x.matched || "none" }
-      ])
-    );
+    
+    // Térkép építése: mindenképpen a beküldött kód alapján keressünk vissza
+    const respMap = new Map();
+    unasList.forEach(x => {
+      const key = String(x.requestedSku || "").trim().toUpperCase();
+      respMap.set(key, x);
+    });
 
-    // raktár összesítés
-    const raktarMap = buildRaktarMapFromSummary(summary); // cikkszám (raktári) -> { nev, keszlet }
-
+    const raktarMap = buildRaktarMapFromSummary(summary);
     const elteresek = [];
     const egyezok = [];
-    const csakWebshopban = []; // itt most nem lesz extra, mert csak raktári kódokra kérdeztünk
 
-    for (const [raktariKod, r] of raktarMap.entries()) {
-      const key = String(raktariKod).toUpperCase();
+    raktarMap.forEach((r, raktariKod) => {
+      const key = raktariKod.toUpperCase();
       const hit = respMap.get(key);
 
-      const unasSku = hit?.unasSku || raktariKod;  // ha fuzzy volt, ez az UNAS SKU
-      const webshopKeszlet = hit ? hit.qty : 0;    // UNAS qty
-      const raktarKeszlet = Number(r?.keszlet || 0);
+      // Ha az API nem küldött adatot, tekintsük 0-nak a webshopot
+      const webKeszlet = (hit && hit.qty !== undefined) ? Number(hit.qty) : 0;
+      const rKeszlet = Number(r.keszlet || 0);
 
       const sor = {
-        "Cikkszám": unasSku,              // <- ETTŐL KEZDVE UNAS-SKU!
-        "Raktári kód": raktariKod,        // megjelenítéshez
-        "Termék név": r?.nev || "",
-        "Webshop készlet": webshopKeszlet,
-        "Raktárkészlet": raktarKeszlet,
-        "Match": hit?.matched || "none"   // "exact" | "fuzzy" | "none"
+        "Cikkszám": hit?.sku || raktariKod,
+        "Termék név": r.nev || "Ismeretlen termék",
+        "Webshop készlet": webKeszlet,
+        "Raktárkészlet": rKeszlet,
+        "Match": hit?.matched || "n/a"
       };
 
-      if (webshopKeszlet !== raktarKeszlet) elteresek.push(sor);
+      if (webKeszlet !== rKeszlet) elteresek.push(sor);
       else egyezok.push(sor);
-    }
+    });
 
-    setSummary(s => ({ 
-      ...s, 
-      elteresek, 
-      egyezok, 
-      csakWebshopban,               // marad, ha később all:true/összes UNAS készlet is jön
-    }));
-
-    alert(`UNAS → Webshop táblák frissítve. Eltérések: ${elteresek.length}, Egyezők: ${egyezok.length}.`);
+    setSummary(s => ({ ...s, elteresek, egyezok, csakRaktarban: [] }));
+    alert("Sikeres UNAS frissítés!");
   } catch (e) {
-    console.error(e);
-    setUnasError(e.message || "Ismeretlen hiba");
-    alert("Hiba: " + (e.message || e));
+    alert("Hiba: " + e.message);
   } finally {
     setUnasLoading(false);
   }
@@ -312,115 +359,235 @@ async function handleFetchUnas() {
   }
 }
 
+// async function handleCompare() {
+//   // 1) Excel beolvasás
+//   let raktarData = await readExcel(raktarFile);
+//   const hasWebshop = !!webshopFile;
+//   const webshopData = hasWebshop ? await readExcel(webshopFile) : [];
+
+//   // 2) Csak 600/900 (vagy üres helyszín/szériaszám) sorok
+//   raktarData = raktarData.filter(row => {
+//     const helyszin = String(row["Helyszín "] ?? "").trim();
+//     const szeriaszam = String(row["Szériaszám"] ?? "").trim();
+//     return (
+//       helyszin === "600" || helyszin === "900" ||
+//       szeriaszam === "600" || szeriaszam === "900" ||
+//       helyszin === "" || szeriaszam === ""
+//     );
+//   });
+
+//   // 3) Cikkszám szerinti összesítés (Szabad < 0 esetén Készleten)
+//   const raktarMap = {};
+//   const raktarCikkszamok = new Set();
+//   for (const row of raktarData) {
+//     const cikkszam = String(row["Cikk-kód"] ?? "").toUpperCase();
+//     if (!cikkszam) continue;
+//     const szabad = Number(row["Szabad"] ?? 0);
+//     const keszleten = Number(row["Készleten"] ?? 0);
+//     const nev = row["Megnevezés"];
+//     const hasznaltKeszlet = szabad < 0 ? keszleten : szabad;
+
+//     if (!raktarMap[cikkszam]) raktarMap[cikkszam] = { nev, keszlet: 0 };
+//     raktarMap[cikkszam].keszlet += hasznaltKeszlet;
+//     raktarCikkszamok.add(cikkszam);
+//   }
+
+//   // 4) Összesített lista
+//   const cikkszamDarabszamok = Array.from(raktarCikkszamok).sort().map(cs => ({
+//     "Cikkszám": cs,
+//     "Megnevezés": raktarMap[cs].nev,
+//     "Raktári készlet (600/900)": raktarMap[cs].keszlet
+//   }));
+
+//   // 5) Részletes lista helyszínnel
+//   const reszletezettKeszletLista = raktarData.map(row => ({
+//     "Cikkszám": String(row["Cikk-kód"] ?? "").toUpperCase(),
+//     "Megnevezés": row["Megnevezés"],
+//     "Helyszín": String(row["Helyszín "] ?? "").trim() || "-",
+//     "Szabad készlet": Number(row["Szabad"] ?? 0)
+//   }));
+
+//   // 6) Webshop összehasonlítás (csak ha VAN webshop)
+//   let elteresek = [];
+//   let egyezok = [];
+//   let csakWebshopban = [];
+
+//   if (hasWebshop) {
+//     const webshopCikkszamok = new Set();
+//     for (const row of webshopData) {
+//       const cikkszam = String(row["Cikkszám"] ?? "").toUpperCase();
+//       const webshopKeszlet = Number(row["Raktárkészlet"] ?? 0);
+//       const nev = row["Termék Név"];
+//       webshopCikkszamok.add(cikkszam);
+
+//       const raktar = raktarMap[cikkszam];
+//       const raktarKeszlet = raktar ? raktar.keszlet : 0;
+
+//       const rec = {
+//         "Cikkszám": cikkszam,
+//         "Termék név": nev,
+//         "Webshop készlet": webshopKeszlet,
+//         "Raktárkészlet": raktarKeszlet
+//       };
+//       if (webshopKeszlet !== raktarKeszlet) elteresek.push(rec);
+//       else egyezok.push(rec);
+//     }
+
+//     // Csak raktárban (nincs webshopban)
+//     const csakRaktarban = [];
+//     for (const cs of raktarCikkszamok) {
+//       if (!webshopCikkszamok.has(cs)) {
+//         const termek = raktarMap[cs];
+//         csakRaktarban.push({
+//           "Cikk-kód": cs,
+//           "Megnevezés": termek.nev,
+//           "Szabad készlet": termek.keszlet
+//         });
+//       }
+//     }
+
+//     setSummary({
+//       elteresek,
+//       egyezok,
+//       csakWebshopban,
+//       csakRaktarban,
+//       cikkszamDarabszamok,
+//       reszletezettKeszletLista
+//     });
+//   } else {
+//     // Webshop nélkül: csak raktári nézetek (és a későbbi UNAS-hoz szükséges táblák legyenek üresek)
+//     setSummary({
+//       elteresek: [],
+//       egyezok: [],
+//       csakWebshopban: [],
+//       csakRaktarban: Array.from(raktarCikkszamok).map(cs => ({
+//         "Cikk-kód": cs,
+//         "Megnevezés": raktarMap[cs].nev,
+//         "Szabad készlet": raktarMap[cs].keszlet
+//       })),
+//       cikkszamDarabszamok,
+//       reszletezettKeszletLista
+//     });
+//   }
+// }
+
 async function handleCompare() {
-  // 1) Excel beolvasás
-  let raktarData = await readExcel(raktarFile);
-  const hasWebshop = !!webshopFile;
-  const webshopData = hasWebshop ? await readExcel(webshopFile) : [];
+  if (!raktarFile) return;
+  setBusy(true); 
+  setSummary(null); // Tisztítjuk az előző eredményt a fagyás elkerülésére
 
-  // 2) Csak 600/900 (vagy üres helyszín/szériaszám) sorok
-  raktarData = raktarData.filter(row => {
-    const helyszin = String(row["Helyszín "] ?? "").trim();
-    const szeriaszam = String(row["Szériaszám"] ?? "").trim();
-    return (
-      helyszin === "600" || helyszin === "900" ||
-      szeriaszam === "600" || szeriaszam === "900" ||
-      helyszin === "" || szeriaszam === ""
-    );
-  });
+  try {
+    // 1. Fájlok beolvasása
+    const raktarData = await readExcel(raktarFile);
+    const hasWebshop = !!webshopFile;
+    const webshopData = hasWebshop ? await readExcel(webshopFile) : [];
 
-  // 3) Cikkszám szerinti összesítés (Szabad < 0 esetén Készleten)
-  const raktarMap = {};
-  const raktarCikkszamok = new Set();
-  for (const row of raktarData) {
-    const cikkszam = String(row["Cikk-kód"] ?? "").toUpperCase();
-    if (!cikkszam) continue;
-    const szabad = Number(row["Szabad"] ?? 0);
-    const keszleten = Number(row["Készleten"] ?? 0);
-    const nev = row["Megnevezés"];
-    const hasznaltKeszlet = szabad < 0 ? keszleten : szabad;
+    // 2. Raktár szűrés (600/900 helyszín/széria)
+    const szurtRaktar = raktarData.filter(row => {
+      const h = String(row["Helyszín "] ?? "").trim();
+      const s = String(row["Szériaszám"] ?? "").trim();
+      return h === "600" || h === "900" || s === "600" || s === "900" || h === "" || s === "";
+    });
 
-    if (!raktarMap[cikkszam]) raktarMap[cikkszam] = { nev, keszlet: 0 };
-    raktarMap[cikkszam].keszlet += hasznaltKeszlet;
-    raktarCikkszamok.add(cikkszam);
-  }
+    // 3. Raktár összesítés (Cikk-kód alapján)
+    const raktarMap = new Map();
+    szurtRaktar.forEach(row => {
+      const cs = String(row["Cikk-kód"] ?? "").trim().toUpperCase();
+      if (!cs) return;
 
-  // 4) Összesített lista
-  const cikkszamDarabszamok = Array.from(raktarCikkszamok).sort().map(cs => ({
-    "Cikkszám": cs,
-    "Megnevezés": raktarMap[cs].nev,
-    "Raktári készlet (600/900)": raktarMap[cs].keszlet
-  }));
+      const szabad = Number(row["Szabad"] ?? 0);
+      const keszleten = Number(row["Készleten"] ?? 0);
+      const hasznaltKeszlet = szabad < 0 ? keszleten : szabad;
 
-  // 5) Részletes lista helyszínnel
-  const reszletezettKeszletLista = raktarData.map(row => ({
-    "Cikkszám": String(row["Cikk-kód"] ?? "").toUpperCase(),
-    "Megnevezés": row["Megnevezés"],
-    "Helyszín": String(row["Helyszín "] ?? "").trim() || "-",
-    "Szabad készlet": Number(row["Szabad"] ?? 0)
-  }));
+      if (!raktarMap.has(cs)) {
+        raktarMap.set(cs, { nev: row["Megnevezés"], keszlet: 0 });
+      }
+      raktarMap.get(cs).keszlet += hasznaltKeszlet;
+    });
 
-  // 6) Webshop összehasonlítás (csak ha VAN webshop)
-  let elteresek = [];
-  let egyezok = [];
-  let csakWebshopban = [];
+    // Segédlista a "csak raktárban" listához
+    const raktarCikkszamok = new Set(raktarMap.keys());
 
-  if (hasWebshop) {
-    const webshopCikkszamok = new Set();
-    for (const row of webshopData) {
-      const cikkszam = String(row["Cikkszám"] ?? "").toUpperCase();
-      const webshopKeszlet = Number(row["Raktárkészlet"] ?? 0);
-      const nev = row["Termék Név"];
-      webshopCikkszamok.add(cikkszam);
+    // 4. Összehasonlítás a Webshop Excellel
+    let elteresek = [];
+    let egyezok = [];
+    let csakWebshopban = [];
+    const feldolgozottWebshopSkuk = new Set();
 
-      const raktar = raktarMap[cikkszam];
-      const raktarKeszlet = raktar ? raktar.keszlet : 0;
+    if (hasWebshop) {
+      webshopData.forEach(row => {
+        // Megkeressük a cikkszám oszlopot (lehet "Cikkszám", "Cikkszam", "SKU" stb.)
+        const csKey = Object.keys(row).find(k => k.toLowerCase().includes("cikkszám") || k.toLowerCase() === "sku");
+        const cs = String(row[csKey] ?? "").trim().toUpperCase();
+        
+        if (!cs) return;
+        
+        // Készlet oszlop keresése
+        const qKey = Object.keys(row).find(k => k.toLowerCase().includes("raktárkészlet") || k.toLowerCase() === "készlet");
+        const webKeszlet = Number(row[qKey] ?? 0);
+        
+        const rData = raktarMap.get(cs);
+        const rKeszlet = rData ? rData.keszlet : 0;
 
-      const rec = {
-        "Cikkszám": cikkszam,
-        "Termék név": nev,
-        "Webshop készlet": webshopKeszlet,
-        "Raktárkészlet": raktarKeszlet
-      };
-      if (webshopKeszlet !== raktarKeszlet) elteresek.push(rec);
-      else egyezok.push(rec);
+        const rec = {
+          "Cikkszám": cs,
+          "Termék név": row["Termék Név"] || row["Megnevezés"] || cs,
+          "Webshop készlet": webKeszlet,
+          "Raktárkészlet": rKeszlet
+        };
+
+        if (webKeszlet !== rKeszlet) elteresek.push(rec);
+        else egyezok.push(rec);
+        
+        feldolgozottWebshopSkuk.add(cs);
+      });
+
+      // Csak a webshopban (ami nincs a raktárfájlban)
+      csakWebshopban = webshopData
+        .filter(row => {
+          const csKey = Object.keys(row).find(k => k.toLowerCase().includes("cikkszám") || k.toLowerCase() === "sku");
+          const cs = String(row[csKey] ?? "").trim().toUpperCase();
+          return cs && !raktarCikkszamok.has(cs);
+        })
+        .map(row => ({
+          "Cikkszám": row[Object.keys(row).find(k => k.toLowerCase().includes("cikkszám"))],
+          "Termék név": row["Termék Név"] || "Nincs raktárban",
+          "Webshop készlet": row[Object.keys(row).find(k => k.toLowerCase().includes("raktárkészlet"))]
+        }));
     }
 
-    // Csak raktárban (nincs webshopban)
+    // 5. Csak a raktárban (ami nincs a webshopfájlban)
     const csakRaktarban = [];
-    for (const cs of raktarCikkszamok) {
-      if (!webshopCikkszamok.has(cs)) {
-        const termek = raktarMap[cs];
+    raktarMap.forEach((data, cs) => {
+      if (!feldolgozottWebshopSkuk.has(cs)) {
         csakRaktarban.push({
           "Cikk-kód": cs,
-          "Megnevezés": termek.nev,
-          "Szabad készlet": termek.keszlet
+          "Megnevezés": data.nev,
+          "Szabad készlet": data.keszlet
         });
       }
-    }
+    });
+
+    // 6. Összesített lista a UI-nak
+    const cikkszamDarabszamok = Array.from(raktarMap.keys()).map(cs => ({
+      "Cikkszám": cs,
+      "Megnevezés": raktarMap.get(cs).nev,
+      "Raktári készlet (600/900)": raktarMap.get(cs).keszlet
+    }));
 
     setSummary({
       elteresek,
       egyezok,
       csakWebshopban,
       csakRaktarban,
-      cikkszamDarabszamok,
-      reszletezettKeszletLista
+      cikkszamDarabszamok
     });
-  } else {
-    // Webshop nélkül: csak raktári nézetek (és a későbbi UNAS-hoz szükséges táblák legyenek üresek)
-    setSummary({
-      elteresek: [],
-      egyezok: [],
-      csakWebshopban: [],
-      csakRaktarban: Array.from(raktarCikkszamok).map(cs => ({
-        "Cikk-kód": cs,
-        "Megnevezés": raktarMap[cs].nev,
-        "Szabad készlet": raktarMap[cs].keszlet
-      })),
-      cikkszamDarabszamok,
-      reszletezettKeszletLista
-    });
+
+  } catch (err) {
+    console.error("Hiba:", err);
+    alert("Hiba történt a beolvasáskor: " + err.message);
+  } finally {
+    setBusy(false);
   }
 }
 
