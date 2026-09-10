@@ -4,7 +4,7 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 
 import { createUnasClient } from './unas.js';
-import { createGraphClient } from './graphClient.js';
+import { createLocalFileClient } from './localFile.js';
 import { runSyncCheck, readReport, writeReport, clearReport, startScheduler } from './scheduler.js';
 import { buildUpdatesFromDiff } from './compare.js';
 
@@ -14,20 +14,14 @@ if (!UNAS_API_KEY) {
   process.exit(1);
 }
 
-const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
-const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
-const ONEDRIVE_HANSA_FOLDER = process.env.ONEDRIVE_HANSA_FOLDER;
-if (!AZURE_CLIENT_ID || !AZURE_TENANT_ID || !ONEDRIVE_HANSA_FOLDER) {
-  console.error('Hiányzik az AZURE_CLIENT_ID / AZURE_TENANT_ID / ONEDRIVE_HANSA_FOLDER a .env-ből!');
+const LOCAL_HANSA_FOLDER = process.env.LOCAL_HANSA_FOLDER;
+if (!LOCAL_HANSA_FOLDER) {
+  console.error('Hiányzik a LOCAL_HANSA_FOLDER a .env-ből! (A Teamsben szinkronizált helyi mappa útvonala.)');
   process.exit(1);
 }
 
 const unasClient = createUnasClient({ apiUrl: process.env.UNAS_API_URL, apiKey: UNAS_API_KEY });
-const graphClient = createGraphClient({
-  clientId: AZURE_CLIENT_ID,
-  tenantId: AZURE_TENANT_ID,
-  oneDriveFolder: ONEDRIVE_HANSA_FOLDER,
-});
+const fileClient = createLocalFileClient({ folder: LOCAL_HANSA_FOLDER });
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -43,7 +37,7 @@ app.get('/api/sync/report', (req, res) => {
 
 app.post('/api/sync/run-now', async (req, res) => {
   try {
-    const report = await runSyncCheck({ graphClient, unasClient });
+    const report = await runSyncCheck({ fileClient, unasClient });
     res.json({ ok: true, report });
   } catch (err) {
     console.error('[run-now]', err.message || err);
@@ -51,21 +45,18 @@ app.post('/api/sync/run-now', async (req, res) => {
   }
 });
 
+// Kézi jóváhagyás — csak akkor kell, ha a napi automata futás gyanúsan sok
+// eltérés miatt "needs_review" állapotban hagyta a riportot ahelyett, hogy
+// automatikusan pusholt volna.
 app.post('/api/sync/approve', async (req, res) => {
   try {
     const report = readReport();
-    if (!report || report.status !== 'pending') {
+    if (!report || report.status !== 'needs_review') {
       return res.status(400).json({ ok: false, error: 'Nincs jóváhagyásra váró riport.' });
     }
     const updates = buildUpdatesFromDiff(report.diff);
-    if (updates.length === 0) {
-      report.status = 'approved';
-      report.approvedAt = new Date().toISOString();
-      writeReport(report);
-      return res.json({ ok: true, updated: 0, note: 'Nem volt eltérés, nincs mit frissíteni.' });
-    }
-    const result = await unasClient.setStock(updates);
-    report.status = 'approved';
+    const result = updates.length ? await unasClient.setStock(updates) : { updated: 0, batches: 0 };
+    report.status = 'auto_approved';
     report.approvedAt = new Date().toISOString();
     report.pushResult = { updated: result.updated, batches: result.batches };
     writeReport(report);
@@ -128,5 +119,5 @@ app.post('/api/unas/stock-sync', async (req, res) => {
 const port = Number(process.env.PORT || 8080);
 app.listen(port, () => {
   console.log(`Készlet-ellenőr szerver fut a :${port} porton`);
-  startScheduler({ graphClient, unasClient, cronExpression: process.env.SYNC_CRON });
+  startScheduler({ fileClient, unasClient, cronExpression: process.env.SYNC_CRON });
 });

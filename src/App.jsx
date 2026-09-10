@@ -65,7 +65,7 @@ function App() {
   }
 
   async function reject() {
-    if (!window.confirm("Elveted a mai riportot? (Nem lesz frissítés UNAS-ban.)")) return;
+    if (!window.confirm("Elveted a mai riportot? (Nem lesz frissítés UNAS-ban, holnap újra lefut az ellenőrzés.)")) return;
     setBusy(true);
     try {
       await fetch(`${API}/api/sync/reject`, { method: "POST" });
@@ -141,8 +141,10 @@ function App() {
             Készlet-ellenőrző
           </h1>
           <p style={{ color: "#666", marginTop: 0 }}>
-            Minden hétköznap reggel automatikusan lekéri a Hansa-fájlt és az élő UNAS készletet,
-            majd itt megjelenik egy jóváhagyásra váró riport.
+            Minden nap reggel 10:00-kor automatikusan lekéri a Hansa-fájlt a szinkronizált mappából
+            és az élő UNAS készletet, majd az eltéréseket automatikusan élesíti. Ha gyanúsan sok
+            eltérés van (a Hansa export hibás lehetett), a rendszer NEM pusholja automatikusan,
+            hanem itt vár kézi átnézésre.
           </p>
 
           <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
@@ -176,21 +178,31 @@ function App() {
 
           {report && (
             <>
+              {report.status === "needs_review" && (
+                <div style={{ background: "#fff8e1", border: "1px solid #f0c96a", color: "#8a6400", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
+                  ⚠️ {report.note || "Gyanúsan sok eltérés — kézi jóváhagyás szükséges."} Semmi nem lett automatikusan frissítve az UNAS-ban.
+                </div>
+              )}
+              {report.status === "auto_approved" && (
+                <div style={{ background: "#eaf7ea", border: "1px solid #a9d9a9", color: "#2c6b2c", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
+                  ✅ Automatikusan élesítve — {report.pushResult?.updated ?? 0} tétel frissült az UNAS-ban.
+                </div>
+              )}
+
               <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
                 <div><strong>Forrásfájl:</strong> {report.sourceFile?.name} (módosítva: {new Date(report.sourceFile?.modifiedAt).toLocaleString("hu-HU")})</div>
                 <div><strong>Riport időpontja:</strong> {new Date(report.createdAt).toLocaleString("hu-HU")}</div>
-                <div><strong>Állapot:</strong> {report.status === "pending" ? "Jóváhagyásra vár" : "Jóváhagyva"}</div>
-                {report.pushResult && <div><strong>Frissített tételek:</strong> {report.pushResult.updated}</div>}
+                <div><strong>Eltérési arány:</strong> {Math.round((report.diffRatio ?? 0) * 100)}%</div>
               </div>
 
-              {report.status === "pending" && (
+              {report.status === "needs_review" && (
                 <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
                   <button
                     onClick={approve}
                     disabled={busy}
                     style={{ backgroundColor: "#2d6cdf", color: "white", padding: "0.75rem 1.5rem", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
                   >
-                    Jóváhagyás és élesítés UNAS-ban ({report.diff.elteresek.length} tétel)
+                    Mégis élesítés UNAS-ban ({report.diff.elteresek.length} tétel)
                   </button>
                   <button
                     onClick={reject}
