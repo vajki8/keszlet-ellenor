@@ -1,114 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  --bg: #f3f5f2;
+  --surface: #ffffff;
+  --surface-2: #f8f9f7;
+  --border: #e4e8e1;
+  --text: #1a2216;
+  --text-dim: #66715f;
+  --text-faint: #98a291;
+
+  --brand: #4f9b3a;
+  --brand-2: #7cc55a;
+  --brand-dark: #2f6b23;
+  --brand-glow: rgba(79, 155, 58, 0.22);
+
+  --ok: #2f9e57;
+  --ok-bg: #e8f7ec;
+  --warn: #b8860b;
+  --warn-bg: #fdf3d9;
+  --err: #d64545;
+  --err-bg: #fbe8e8;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+
+  --shadow-sm: 0 1px 2px rgba(20, 30, 15, 0.06);
+  --shadow: 0 4px 16px rgba(20, 30, 15, 0.08);
+  --shadow-lg: 0 12px 32px rgba(20, 30, 15, 0.14);
+
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color-scheme: light;
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-
-  /* Világos mód az alap */
-  color: #213547;
-  background-color: #ffffff;
-
+  color: var(--text);
+  background-color: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+body.dark {
+  color-scheme: dark;
+  --bg: #10130f;
+  --surface: #181d15;
+  --surface-2: #1e2419;
+  --border: #2a3123;
+  --text: #edf1e9;
+  --text-dim: #a3ad99;
+  --text-faint: #6d7864;
+
+  --brand: #7cc55a;
+  --brand-2: #9adf7a;
+  --brand-dark: #5aa63d;
+  --brand-glow: rgba(124, 197, 90, 0.25);
+
+  --ok: #6bd08f;
+  --ok-bg: #17301f;
+  --warn: #e0b13c;
+  --warn-bg: #332a10;
+  --err: #ef7373;
+  --err-bg: #351717;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.5);
 }
-a:hover {
-  color: #747bff;
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  transition: background-color 0.35s var(--ease), color 0.35s var(--ease);
+}
+
+#root {
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #f9f9f9;
-  color: #213547;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: rgba(255, 255, 255, 0.87);
-    background-color: #242424;
-  }
-
-  a {
-    color: #8fa8ff;
-  }
-
-  a:hover {
-    color: #aab4ff;
-  }
-
-  button {
-    background-color: #1a1a1a;
-    color: #ffffff;
-    border-color: #333;
-  }
-
-  button:hover {
-    border-color: #8fa8ff;
-  }
-}
-
-/* Alap világos mód */
-body {
-  background-color: #ffffff;
-  color: #000000;
-  transition: background-color 0.3s, color 0.3s;
-}
-
-/* Sötét mód, ha a body kapja a .dark osztályt */
-body.dark {
-  background-color: #121212;
-  color: #f0f0f0;
+h1,
+h2,
+h3 {
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 a {
-  color: #3366cc;
+  font-weight: 500;
+  color: var(--brand);
+  text-decoration: none;
 }
-body.dark a {
-  color: #82b1ff;
+a:hover {
+  color: var(--brand-dark);
 }
 
 button {
-  background-color: #eee;
-  color: #000;
-  border: none;
-  padding: 0.5em 1em;
-  border-radius: 5px;
+  font-family: inherit;
   cursor: pointer;
 }
-body.dark button {
-  background-color: #333;
-  color: #fff;
+
+input,
+select {
+  font-family: inherit;
+  color: var(--text);
+}
+
+::selection {
+  background: var(--brand-glow);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
 }

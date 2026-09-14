@@ -1,13 +1,160 @@
 // cSpell:disable
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import HirlevelSzinkron from "./HirlevelSzinkron";
 import SyncTortenet from "./SyncTortenet";
+import "./App.css";
 
 const API = "http://localhost:8080";
 
-function App() {
-  const [view, setView] = useState("keszlet"); // "keszlet" vagy "hirlevel"
+const TABS = [
+  { id: "keszlet", label: "Készlet-ellenőrzés" },
+  { id: "tortenet", label: "Előzmények" },
+  { id: "hirlevel", label: "Hírlevél szinkron" },
+];
 
+const pageTransition = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -10 },
+  transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] },
+};
+
+function useDarkMode() {
+  const [dark, setDark] = useState(() => {
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved) return saved === "dark";
+      return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    document.body.classList.toggle("dark", dark);
+    try {
+      localStorage.setItem("theme", dark ? "dark" : "light");
+    } catch {
+      // ignore
+    }
+  }, [dark]);
+
+  return [dark, setDark];
+}
+
+function ThemeToggle({ dark, onToggle }) {
+  return (
+    <button
+      className="icon-btn"
+      onClick={onToggle}
+      title={dark ? "Világos mód" : "Sötét mód"}
+      aria-label="Téma váltása"
+    >
+      <motion.span
+        key={dark ? "moon" : "sun"}
+        initial={{ rotate: -90, opacity: 0 }}
+        animate={{ rotate: 0, opacity: 1 }}
+        transition={{ duration: 0.25 }}
+      >
+        {dark ? "🌙" : "☀️"}
+      </motion.span>
+    </button>
+  );
+}
+
+function Tabs({ view, setView }) {
+  return (
+    <div className="tabs">
+      {TABS.map(t => (
+        <button
+          key={t.id}
+          className={`tab ${view === t.id ? "active" : ""}`}
+          onClick={() => setView(t.id)}
+        >
+          {view === t.id && (
+            <motion.span
+              layoutId="tab-pill"
+              className="tab-pill"
+              transition={{ type: "spring", stiffness: 500, damping: 38 }}
+            />
+          )}
+          <span style={{ position: "relative", zIndex: 1 }}>{t.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function StatusBadge({ status, note }) {
+  if (status === "needs_review") {
+    return (
+      <span className="badge badge-warn" title={note}>
+        <span className="badge-dot" /> Kézi jóváhagyásra vár
+      </span>
+    );
+  }
+  if (status === "error") {
+    return (
+      <span className="badge badge-err" title={note}>
+        <span className="badge-dot" /> Hiba
+      </span>
+    );
+  }
+  return (
+    <span className="badge badge-ok">
+      <span className="badge-dot" /> Automatikusan élesítve
+    </span>
+  );
+}
+
+function DataTable({ title, rows, delay = 0 }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div style={{ marginTop: "1.75rem" }}>
+        <h2 style={{ fontSize: "1.05rem", color: "var(--text)", marginBottom: "0.6rem" }}>
+          {title} <span style={{ color: "var(--text-faint)", fontWeight: 500 }}>(0)</span>
+        </h2>
+        <div className="card empty-state">Nincs találat.</div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay, ease: [0.16, 1, 0.3, 1] }}
+      style={{ marginTop: "1.75rem" }}
+    >
+      <h2 style={{ fontSize: "1.05rem", color: "var(--text)", marginBottom: "0.6rem" }}>
+        {title} <span style={{ color: "var(--text-faint)", fontWeight: 500 }}>({rows.length})</span>
+      </h2>
+      <div className="table-wrap">
+        <table className="data">
+          <thead>
+            <tr>
+              {Object.keys(rows[0]).map(key => (
+                <th key={key}>{key}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i}>
+                {Object.values(row).map((val, j) => (
+                  <td key={j}>{String(val ?? "")}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </motion.div>
+  );
+}
+
+function KeszletView() {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -56,7 +203,6 @@ function App() {
       const resp = await fetch(`${API}/api/sync/approve`, { method: "POST" });
       const data = await resp.json();
       if (!data.ok) throw new Error(data.error || "Ismeretlen hiba");
-      alert(`Kész: ${data.updated ?? 0} tétel frissítve.`);
       await loadReport();
     } catch (e) {
       setError(e.message);
@@ -83,168 +229,151 @@ function App() {
     );
   };
 
-  const renderTable = (title, rows) => {
-    const filtered = filterRows(rows || []);
-    return (
-      <div style={{ marginTop: "2rem" }}>
-        <h2 style={{ fontSize: "1.25rem", color: "#333" }}>{title} ({filtered.length})</h2>
-        {filtered.length === 0 ? (
-          <p style={{ color: "#777" }}>Nincs találat.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "0.5rem" }}>
-            <thead>
-              <tr>
-                {Object.keys(filtered[0]).map(key => (
-                  <th key={key} style={{ borderBottom: "1px solid #ccc", textAlign: "left", padding: "0.5rem" }}>
-                    {key}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((row, i) => (
-                <tr key={i}>
-                  {Object.values(row).map((val, j) => (
-                    <td key={j} style={{ borderBottom: "1px solid #eee", padding: "0.5rem" }}>{String(val ?? "")}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    );
-  };
+  const filtered = useMemo(() => ({
+    elteresek: filterRows(report?.diff?.elteresek || []),
+    egyezok: filterRows(report?.diff?.egyezok || []),
+    nemTalalhato: filterRows(report?.diff?.nemTalalhatoUnasban || []),
+  }), [report, filterText]);
 
   return (
-    <div style={{ fontFamily: "sans-serif", background: "#f4f5f7", minHeight: "100vh" }}>
-      <header
-        style={{
-          position: "sticky", top: 0, zIndex: 100, display: "flex", alignItems: "center",
-          justifyContent: "space-between", padding: "1rem 2rem", background: "#4a772c",
-          color: "#fff", boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
-        }}
-      >
-        <h1 style={{ margin: 0 }}>Agrolánc programok</h1>
-        <select
-          value={view}
-          onChange={e => setView(e.target.value)}
-          style={{ padding: "0.5rem 1rem", borderRadius: 4, border: "1px solid #ccc", fontSize: "1rem", background: "#fff", marginLeft: "1rem" }}
-        >
-          <option value="keszlet">Készlet-ellenőrzés</option>
-          <option value="tortenet">Szinkron előzmények</option>
-          <option value="hirlevel">Hírlevél szinkron</option>
-        </select>
-      </header>
+    <div className="page">
+      <div className="page-header">
+        <h1 className="page-title">Készlet-ellenőrző</h1>
+        <p className="page-subtitle">
+          Minden nap reggel 10:00-kor automatikusan lekéri a Hansa-fájlt a szinkronizált mappából
+          és az élő UNAS készletet, majd az eltéréseket automatikusan élesíti. Ha gyanúsan sok
+          eltérés van, a rendszer kézi átnézésre vár itt.
+        </p>
+      </div>
 
-      {view === "keszlet" && (
-        <main style={{ padding: "2rem", maxWidth: "1000px", margin: "2rem auto" }}>
-          <h1 style={{ fontSize: "1.75rem", fontWeight: "bold", color: "#6ba539", marginBottom: "0.5rem" }}>
-            Készlet-ellenőrző
-          </h1>
-          <p style={{ color: "#666", marginTop: 0 }}>
-            Minden nap reggel 10:00-kor automatikusan lekéri a Hansa-fájlt a szinkronizált mappából
-            és az élő UNAS készletet, majd az eltéréseket automatikusan élesíti. Ha gyanúsan sok
-            eltérés van (a Hansa export hibás lehetett), a rendszer NEM pusholja automatikusan,
-            hanem itt vár kézi átnézésre.
-          </p>
+      <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+        <button className="btn btn-primary" onClick={runNow} disabled={busy}>
+          {busy ? <span className="spinner" /> : "▶"} Ellenőrzés futtatása most
+        </button>
+        <button className="btn btn-ghost" onClick={loadReport} disabled={busy || loading}>
+          ⟳ Frissítés
+        </button>
+      </div>
 
-          <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
-            <button
-              onClick={runNow}
-              disabled={busy}
-              style={{ backgroundColor: "#888", color: "white", padding: "0.5rem 1rem", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
-            >
-              Ellenőrzés futtatása most
-            </button>
-            <button
-              onClick={loadReport}
-              disabled={busy || loading}
-              style={{ backgroundColor: "#ccc", color: "#333", padding: "0.5rem 1rem", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
-            >
-              Frissítés
-            </button>
+      <AnimatePresence mode="wait">
+        {error && (
+          <motion.div
+            key="error"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="card"
+            style={{ background: "var(--err-bg)", borderColor: "var(--err)", color: "var(--err)", padding: "1rem", marginBottom: "1.5rem" }}
+          >
+            Hiba: {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", color: "var(--text-dim)" }}>
+          <span className="spinner" /> Betöltés...
+        </div>
+      )}
+
+      {!loading && !report && !error && (
+        <div className="card empty-state">Még nincs riport. Kattints az "Ellenőrzés futtatása most" gombra.</div>
+      )}
+
+      {report && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem", marginBottom: "1rem" }}>
+            <StatusBadge status={report.status} note={report.note} />
+            <span style={{ color: "var(--text-faint)", fontSize: "0.82rem" }}>
+              {report.sourceFile?.name} · {new Date(report.createdAt).toLocaleString("hu-HU")}
+            </span>
           </div>
 
-          {error && (
-            <div style={{ background: "#fdeaea", border: "1px solid #f3b3b3", color: "#a33", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
-              Hiba: {error}
+          <div className="stat-grid">
+            <motion.div className="card stat-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+              <span className="stat-label">Eltérés</span>
+              <span className="stat-value" style={{ color: "var(--warn)" }}>{report.diff.elteresek.length}</span>
+            </motion.div>
+            <motion.div className="card stat-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+              <span className="stat-label">Egyezik</span>
+              <span className="stat-value" style={{ color: "var(--ok)" }}>{report.diff.egyezok.length}</span>
+            </motion.div>
+            <motion.div className="card stat-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+              <span className="stat-label">Nincs UNAS-ban</span>
+              <span className="stat-value" style={{ color: "var(--text-dim)" }}>{report.diff.nemTalalhatoUnasban.length}</span>
+            </motion.div>
+            <motion.div className="card stat-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+              <span className="stat-label">Eltérési arány</span>
+              <span className="stat-value">{Math.round((report.diffRatio ?? 0) * 100)}%</span>
+            </motion.div>
+          </div>
+
+          {report.status === "needs_review" && (
+            <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" onClick={approve} disabled={busy}>
+                Mégis élesítés UNAS-ban ({report.diff.elteresek.length} tétel)
+              </button>
+              <button className="btn btn-ghost" onClick={reject} disabled={busy}>
+                Elvetés
+              </button>
             </div>
           )}
 
-          {loading && <p>Betöltés...</p>}
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Szűrés bármelyik oszlopban..."
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+          />
 
-          {!loading && !report && !error && (
-            <p style={{ color: "#777" }}>Még nincs riport. Kattints az "Ellenőrzés futtatása most" gombra.</p>
-          )}
-
-          {report && (
-            <>
-              {report.status === "needs_review" && (
-                <div style={{ background: "#fff8e1", border: "1px solid #f0c96a", color: "#8a6400", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
-                  ⚠️ {report.note || "Gyanúsan sok eltérés — kézi jóváhagyás szükséges."} Semmi nem lett automatikusan frissítve az UNAS-ban.
-                </div>
-              )}
-              {report.status === "auto_approved" && (
-                <div style={{ background: "#eaf7ea", border: "1px solid #a9d9a9", color: "#2c6b2c", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
-                  ✅ Automatikusan élesítve — {report.pushResult?.updated ?? 0} tétel frissült az UNAS-ban.
-                </div>
-              )}
-
-              <div style={{ background: "#fff", border: "1px solid #ddd", borderRadius: 8, padding: "1rem", marginBottom: "1.5rem" }}>
-                <div><strong>Forrásfájl:</strong> {report.sourceFile?.name} (módosítva: {new Date(report.sourceFile?.modifiedAt).toLocaleString("hu-HU")})</div>
-                <div><strong>Riport időpontja:</strong> {new Date(report.createdAt).toLocaleString("hu-HU")}</div>
-                <div><strong>Eltérési arány:</strong> {Math.round((report.diffRatio ?? 0) * 100)}%</div>
-              </div>
-
-              {report.status === "needs_review" && (
-                <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem" }}>
-                  <button
-                    onClick={approve}
-                    disabled={busy}
-                    style={{ backgroundColor: "#2d6cdf", color: "white", padding: "0.75rem 1.5rem", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
-                  >
-                    Mégis élesítés UNAS-ban ({report.diff.elteresek.length} tétel)
-                  </button>
-                  <button
-                    onClick={reject}
-                    disabled={busy}
-                    style={{ backgroundColor: "#ddd", color: "#333", padding: "0.75rem 1.5rem", border: "none", borderRadius: "6px", fontWeight: "bold", cursor: "pointer" }}
-                  >
-                    Elvetés
-                  </button>
-                </div>
-              )}
-
-              <div style={{ marginBottom: "1rem" }}>
-                <input
-                  type="text"
-                  placeholder="Szűrés bármelyik oszlopban..."
-                  value={filterText}
-                  onChange={e => setFilterText(e.target.value)}
-                  style={{ padding: "0.5rem", width: "300px" }}
-                />
-              </div>
-
-              {renderTable("Eltérések (ezek frissülnek jóváhagyáskor)", report.diff.elteresek)}
-              {renderTable("Egyező tételek", report.diff.egyezok)}
-              {renderTable("Nem található az UNAS-ban", report.diff.nemTalalhatoUnasban)}
-            </>
-          )}
-        </main>
+          <DataTable title="Eltérések (ezek frissülnek jóváhagyáskor)" rows={filtered.elteresek} delay={0} />
+          <DataTable title="Egyező tételek" rows={filtered.egyezok} delay={0.06} />
+          <DataTable title="Nem található az UNAS-ban" rows={filtered.nemTalalhato} delay={0.12} />
+        </motion.div>
       )}
+    </div>
+  );
+}
 
-      {view === "tortenet" && (
-        <main style={{ padding: "2rem", maxWidth: "1000px", margin: "2rem auto" }}>
-          <SyncTortenet />
-        </main>
-      )}
+function App() {
+  const [view, setView] = useState("keszlet");
+  const [dark, setDark] = useDarkMode();
 
-      {view === "hirlevel" && (
-        <main style={{ padding: "2rem", maxWidth: "800px", margin: "auto" }}>
-          <HirlevelSzinkron />
-        </main>
-      )}
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">A</span>
+          Agrolánc programok
+        </div>
+        <div className="topbar-right">
+          <Tabs view={view} setView={setView} />
+          <ThemeToggle dark={dark} onToggle={() => setDark(d => !d)} />
+        </div>
+      </header>
+
+      <AnimatePresence mode="wait">
+        {view === "keszlet" && (
+          <motion.div key="keszlet" {...pageTransition}>
+            <KeszletView />
+          </motion.div>
+        )}
+        {view === "tortenet" && (
+          <motion.div key="tortenet" {...pageTransition}>
+            <div className="page">
+              <SyncTortenet />
+            </div>
+          </motion.div>
+        )}
+        {view === "hirlevel" && (
+          <motion.div key="hirlevel" {...pageTransition}>
+            <div className="page" style={{ maxWidth: 1000 }}>
+              <HirlevelSzinkron />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
