@@ -7,6 +7,7 @@ import { createUnasClient } from './unas.js';
 import { createLocalFileClient } from './localFile.js';
 import { runSyncCheck, readReport, writeReport, clearReport, startScheduler } from './scheduler.js';
 import { buildUpdatesFromDiff } from './compare.js';
+import { readHistory, appendHistory, summarizeReportForHistory } from './history.js';
 
 const UNAS_API_KEY = process.env.UNAS_API_KEY;
 if (!UNAS_API_KEY) {
@@ -35,6 +36,11 @@ app.get('/api/sync/report', (req, res) => {
   res.json({ ok: true, report });
 });
 
+app.get('/api/sync/history', (req, res) => {
+  const history = readHistory();
+  res.json({ ok: true, history: history.slice().reverse() });
+});
+
 app.post('/api/sync/run-now', async (req, res) => {
   try {
     const report = await runSyncCheck({ fileClient, unasClient });
@@ -60,6 +66,7 @@ app.post('/api/sync/approve', async (req, res) => {
     report.approvedAt = new Date().toISOString();
     report.pushResult = { updated: result.updated, batches: result.batches };
     writeReport(report);
+    appendHistory(summarizeReportForHistory(report, { trigger: 'approve' }));
     res.json({ ok: true, ...result });
   } catch (err) {
     console.error('[approve]', err.message || err);

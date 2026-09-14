@@ -1,6 +1,7 @@
 // cSpell:disable
 import React, { useState, useCallback, useEffect } from "react";
 import HirlevelSzinkron from "./HirlevelSzinkron";
+import SyncTortenet from "./SyncTortenet";
 
 const API = "http://localhost:8080";
 
@@ -131,6 +132,7 @@ function App() {
           style={{ padding: "0.5rem 1rem", borderRadius: 4, border: "1px solid #ccc", fontSize: "1rem", background: "#fff", marginLeft: "1rem" }}
         >
           <option value="keszlet">Készlet-ellenőrzés</option>
+          <option value="tortenet">Szinkron előzmények</option>
           <option value="hirlevel">Hírlevél szinkron</option>
         </select>
       </header>
@@ -229,6 +231,12 @@ function App() {
               {renderTable("Nem található az UNAS-ban", report.diff.nemTalalhatoUnasban)}
             </>
           )}
+        </main>
+      )}
+
+      {view === "tortenet" && (
+        <main style={{ padding: "2rem", maxWidth: "1000px", margin: "2rem auto" }}>
+          <SyncTortenet />
         </main>
       )}
 
