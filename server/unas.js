@@ -116,25 +116,19 @@ export function createUnasClient({ apiUrl, apiKey }) {
     return token;
   }
 
-  // SKU -> { requestedSku, unasSku, qty, matched } — szigorú SKU=equals filterrel
+  // SKU -> { requestedSku, unasSku, qty, matched } — a dedikált getStock végponton,
+  // vesszővel elválasztott Sku listával (max ~100 cikkszám/hívás, lásd UNAS API limit).
   async function getStock(skus) {
     const token = await login();
     const norm = s => String(s || '').trim();
-    const limit = 8;
-    const queue = skus.map(s => ({ sku: s }));
-    let running = 0;
 
-    async function viaGetProductsExact(requestedSku) {
-      const sku = norm(requestedSku);
+    async function fetchBatch(batchSkus) {
+      const skuList = batchSkus.map(norm).map(xmlEscape).join(',');
       const xmlReq =
         `<?xml version="1.0" encoding="UTF-8"?>` +
-        `<Params>` +
-          `<Fields><Field>Sku</Field><Field>Stocks</Field><Field>Variants</Field></Fields>` +
-          `<Filters><Filter><Field>Sku</Field><Operator>equals</Operator><Value>${xmlEscape(sku)}</Value></Filter></Filters>` +
-          `<Limit>1</Limit>` +
-        `</Params>`;
+        `<Params><Sku>${skuList}</Sku></Params>`;
 
-      const resp = await ax.post(`${UNAS_API}/getProducts`, xmlReq, {
+      const resp = await ax.post(`${UNAS_API}/getStock`, xmlReq, {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/xml', 'Accept': 'application/xml' },
       });
 
@@ -145,41 +139,37 @@ export function createUnasClient({ apiUrl, apiKey }) {
       let arr = j?.Products?.Product || [];
       if (!Array.isArray(arr)) arr = arr ? [arr] : [];
 
-      if (arr.length === 0) return { requestedSku: sku, unasSku: null, qty: 0, matched: 'none' };
-
-      const p = arr[0];
-      const unasSku = String(p?.Sku || sku).trim();
-      const qty = Number(extractQty(p)) || 0;
-
-      return {
-        requestedSku: sku,
-        unasSku,
-        qty,
-        matched: (unasSku.toUpperCase() === sku.toUpperCase()) ? 'exact' : 'fuzzy',
-      };
+      const bySku = new Map();
+      for (const p of arr) {
+        const unasSku = String(p?.Sku || '').trim();
+        if (!unasSku) continue;
+        bySku.set(unasSku.toUpperCase(), { unasSku, qty: Number(extractQty(p)) || 0 });
+      }
+      return bySku;
     }
 
-    const results = await new Promise(resolve => {
-      const out = [];
-      const kick = () => {
-        while (running < limit && queue.length) {
-          const it = queue.shift();
-          running++;
-          viaGetProductsExact(it.sku)
-            .then(r => out.push(r))
-            .catch(() => out.push({ requestedSku: norm(it.sku), unasSku: null, qty: 0, matched: 'error' }))
-            .finally(() => {
-              running--;
-              if (!queue.length && running === 0) resolve(out);
-              else kick();
-            });
-        }
-      };
-      kick();
-    });
+    const chunks = chunk(skus.map(norm), 100);
+    const merged = new Map();
+    for (const batch of chunks) {
+      try {
+        const bySku = await fetchBatch(batch);
+        for (const [k, v] of bySku.entries()) merged.set(k, v);
+      } catch {
+        // A batch hibája esetén az érintett cikkszámok "none"-ként térnek vissza lent.
+      }
+    }
 
-    const map = new Map(results.map(r => [r.requestedSku, r]));
-    return skus.map(s => map.get(norm(s)) || { requestedSku: norm(s), unasSku: null, qty: 0, matched: 'none' });
+    return skus.map(s => {
+      const sku = norm(s);
+      const hit = merged.get(sku.toUpperCase());
+      if (!hit) return { requestedSku: sku, unasSku: null, qty: 0, matched: 'none' };
+      return {
+        requestedSku: sku,
+        unasSku: hit.unasSku,
+        qty: hit.qty,
+        matched: hit.unasSku.toUpperCase() === sku.toUpperCase() ? 'exact' : 'fuzzy',
+      };
+    });
   }
 
   function chunk(arr, size) {
