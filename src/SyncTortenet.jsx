@@ -1,6 +1,6 @@
 // cSpell:disable
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { motion } from "framer-motion";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const API = "http://localhost:8080";
 
@@ -88,6 +88,16 @@ export default function SyncTortenet() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState(() => new Set());
+
+  const toggleExpanded = i => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,26 +200,82 @@ export default function SyncTortenet() {
             <table className="data">
               <thead>
                 <tr>
+                  <th style={{ width: 28 }} />
                   {["Időpont", "Forrás", "Állapot", "Forrásfájl", "Frissült", "Eltérés", "Egyezés", "Megjegyzés"].map(h => (
                     <th key={h}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {history.map((e, i) => (
-                  <tr key={i}>
-                    <td>{formatDate(e.at)}</td>
-                    <td>{TRIGGER_LABEL[e.trigger] || e.trigger}</td>
-                    <td><Badge status={e.status} /></td>
-                    <td>{e.sourceFile?.name || "—"}</td>
-                    <td>{e.updated ?? "—"}</td>
-                    <td>{e.elteresekCount ?? "—"}</td>
-                    <td>{e.egyezokCount ?? "—"}</td>
-                    <td style={{ color: "var(--text-dim)", whiteSpace: "normal", maxWidth: 260 }}>
-                      {e.error || e.note || ""}
-                    </td>
-                  </tr>
-                ))}
+                {history.map((e, i) => {
+                  const hasDetails = (e.elteresek || []).length > 0;
+                  const isOpen = expanded.has(i);
+                  return (
+                    <React.Fragment key={i}>
+                      <tr
+                        onClick={() => hasDetails && toggleExpanded(i)}
+                        style={{ cursor: hasDetails ? "pointer" : "default" }}
+                      >
+                        <td style={{ color: "var(--text-faint)", textAlign: "center" }}>
+                          {hasDetails ? (
+                            <motion.span
+                              animate={{ rotate: isOpen ? 90 : 0 }}
+                              transition={{ duration: 0.2 }}
+                              style={{ display: "inline-block" }}
+                            >
+                              ▸
+                            </motion.span>
+                          ) : null}
+                        </td>
+                        <td>{formatDate(e.at)}</td>
+                        <td>{TRIGGER_LABEL[e.trigger] || e.trigger}</td>
+                        <td><Badge status={e.status} /></td>
+                        <td>{e.sourceFile?.name || "—"}</td>
+                        <td>{e.updated ?? "—"}</td>
+                        <td>{e.elteresekCount ?? "—"}</td>
+                        <td>{e.egyezokCount ?? "—"}</td>
+                        <td style={{ color: "var(--text-dim)", whiteSpace: "normal", maxWidth: 260 }}>
+                          {e.error || e.note || ""}
+                        </td>
+                      </tr>
+                      <AnimatePresence initial={false}>
+                        {hasDetails && isOpen && (
+                          <tr>
+                            <td colSpan={9} style={{ padding: 0, borderBottom: "1px solid var(--border)" }}>
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                                style={{ overflow: "hidden", background: "var(--surface-2)" }}
+                              >
+                                <table className="data" style={{ margin: "0.5rem 1rem 0.75rem", width: "calc(100% - 2rem)" }}>
+                                  <thead>
+                                    <tr>
+                                      {["Cikkszám", "Termék név", "Régi (webshop)", "Új (raktár)"].map(h => (
+                                        <th key={h}>{h}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {e.elteresek.map((row, j) => (
+                                      <tr key={j}>
+                                        <td>{row["Cikkszám"]}</td>
+                                        <td style={{ whiteSpace: "normal" }}>{row["Termék név"]}</td>
+                                        <td>{row["Webshop készlet"]}</td>
+                                        <td style={{ fontWeight: 700, color: "var(--ok)" }}>{row["Raktárkészlet"]}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </motion.div>
+                            </td>
+                          </tr>
+                        )}
+                      </AnimatePresence>
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

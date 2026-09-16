@@ -39,6 +39,8 @@ export function summarizeReportForHistory(report, { trigger }) {
     nemTalalhatoCount: report.diff?.nemTalalhatoUnasban?.length ?? 0,
     updated: report.pushResult?.updated ?? 0,
     note: report.note || null,
+    // A ténylegesen megváltozott tételek részletei (mit miről mire állítottunk).
+    elteresek: report.diff?.elteresek || [],
   };
 }
 
